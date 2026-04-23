@@ -13,20 +13,17 @@ import (
 type creativeStorage interface {
 	PresignPutObject(ctx context.Context, objectKey, contentType string) (string, error)
 	PresignGetObject(ctx context.Context, objectKey string) (string, error)
-	EnsureObjectExists(ctx context.Context, objectKey string) error
 }
 
 type MarketingHandler struct {
-	db                      *sql.DB
-	creativeStorage         creativeStorage
-	skipCreativeObjectCheck bool
+	db              *sql.DB
+	creativeStorage creativeStorage
 }
 
-func NewMarketingHandler(db *sql.DB, creativeStorage creativeStorage, skipCreativeObjectCheck bool) *MarketingHandler {
+func NewMarketingHandler(db *sql.DB, creativeStorage creativeStorage) *MarketingHandler {
 	return &MarketingHandler{
-		db:                      db,
-		creativeStorage:         creativeStorage,
-		skipCreativeObjectCheck: skipCreativeObjectCheck,
+		db:              db,
+		creativeStorage: creativeStorage,
 	}
 }
 

@@ -55,7 +55,7 @@ func main() {
 		}
 	}
 
-	marketingHandler := handlers.NewMarketingHandler(pgDB, creativeStorage, cfg.S3.SkipObjectHeadCheck)
+	marketingHandler := handlers.NewMarketingHandler(pgDB, creativeStorage)
 
 	// Публичные маршруты
 	r.Post("/api/auth/signup", authHandler.Signup)

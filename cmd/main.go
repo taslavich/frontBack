@@ -67,7 +67,7 @@ func main() {
 			log.Fatalf("S3 initialization error: %v", err)
 		}
 	}
-	marketingHandler := handlers.NewMarketingHandler(pgDB, creativeStorage, cfg.S3.SkipObjectHeadCheck)
+	marketingHandler := handlers.NewMarketingHandler(pgDB, creativeStorage)
 
 	// Публичные маршруты
 	router.Post("/api/auth/signup", authHandler.Signup)

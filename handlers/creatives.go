@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/taslavich/frontBack/models"
-	"github.com/taslavich/frontBack/storage"
 	"github.com/taslavich/frontBack/utils"
 )
 
@@ -58,16 +56,12 @@ func (h *MarketingHandler) CreateCreative(w http.ResponseWriter, r *http.Request
 		utils.WriteError(w, 400, "Invalid JSON")
 		return
 	}
-	if c.S3FilePath != nil && h.creativeStorage != nil && !h.skipCreativeObjectCheck {
-		if err := h.creativeStorage.EnsureObjectExists(r.Context(), *c.S3FilePath); err != nil {
-			if errors.Is(err, storage.ErrObjectNotFound) {
-				utils.WriteError(w, 400, "Creative file not found in S3 by provided s3_file_path")
-				return
-			}
-			utils.WriteError(w, 500, "Unable to validate creative file in S3")
-			return
-		}
+
+	if h.creativeStorage != nil {
+		key := generateCreativeObjectKey(cid, c.FileFormat)
+		c.S3FilePath = &key
 	}
+
 	c.CampaignID = cid
 	created, err := scanCreativeRow(h.db.QueryRow(`INSERT INTO creatives (campaign_id,creative_name,link,trackers_macros,w,h,s3_file_path,file_format,title,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,campaign_id,creative_name,link,trackers_macros,w,h,s3_file_path,file_format,title,description`, c.CampaignID, c.CreativeName, c.Link, c.TrackersMacros, c.W, c.H, c.S3FilePath, c.FileFormat, c.Title, c.Description))
 	if err != nil {
@@ -116,6 +110,7 @@ func (h *MarketingHandler) PatchCreative(w http.ResponseWriter, r *http.Request)
 		utils.WriteError(w, 500, "Update failed")
 		return
 	}
+	h.enrichCreativeWithURL(r, &updated)
 	utils.WriteJSON(w, 200, updated)
 }
 
@@ -178,4 +173,14 @@ func (h *MarketingHandler) enrichCreativeWithURL(r *http.Request, cr *models.Cre
 	if err == nil {
 		cr.CreativeURL = &url
 	}
+}
+
+func generateCreativeObjectKey(campaignID string, fileFormat *string) string {
+	ts := time.Now().UnixNano()
+	ext := ""
+	if fileFormat != nil && strings.TrimSpace(*fileFormat) != "" {
+		clean := strings.TrimPrefix(strings.TrimSpace(*fileFormat), ".")
+		ext = "." + strings.ToLower(clean)
+	}
+	return fmt.Sprintf("creatives/%s/%d%s", campaignID, ts, ext)
 }
