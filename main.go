@@ -35,6 +35,7 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(pgDB, cfg)
 	profileHandler := handlers.NewProfileHandler(pgDB)
+	marketingHandler := handlers.NewMarketingHandler(pgDB)
 
 	// Публичные маршруты
 	r.Post("/api/auth/signup", authHandler.Signup)
@@ -49,6 +50,29 @@ func main() {
 		r.Post("/api/auth/password", authHandler.ChangePassword)
 		r.Get("/api/profile", profileHandler.GetProfile)
 		r.Patch("/api/profile", profileHandler.PatchProfile)
+		r.Get("/api/campaigns", marketingHandler.ListCampaigns)
+		r.Get("/api/campaigns/{id}", marketingHandler.GetCampaign)
+		r.Post("/api/campaigns", marketingHandler.CreateCampaign)
+		r.Patch("/api/campaigns/{id}", marketingHandler.PatchCampaign)
+		r.Delete("/api/campaigns/{id}", marketingHandler.DeleteCampaign)
+
+		r.Get("/api/campaigns/{cid}/creatives", marketingHandler.ListCreatives)
+		r.Post("/api/campaigns/{cid}/creatives", marketingHandler.CreateCreative)
+		r.Patch("/api/creatives/{id}", marketingHandler.PatchCreative)
+		r.Delete("/api/creatives/{id}", marketingHandler.DeleteCreative)
+		r.Post("/api/creatives/upload-url", marketingHandler.GetUploadURL)
+
+		r.Get("/api/topups", marketingHandler.ListTopups)
+		r.Post("/api/topups", marketingHandler.CreateTopup)
+		r.Patch("/api/topups/{id}", marketingHandler.PatchTopup)
+		r.Post("/api/topups/{id}/cancel", marketingHandler.CancelTopup)
+
+		r.Get("/api/promocodes/{code}", marketingHandler.GetPromocode)
+
+		r.Get("/api/notifications", marketingHandler.ListNotifications)
+		r.Post("/api/notifications", marketingHandler.CreateNotification)
+		r.Patch("/api/notifications/{id}", marketingHandler.PatchNotification)
+
 	})
 
 	log.Printf("Server starting on port %s", cfg.Port)
