@@ -16,10 +16,10 @@ import (
 
 type AuthHandler struct {
 	db  *sql.DB
-	cfg *config.Config
+	cfg *config.ApiConfig
 }
 
-func NewAuthHandler(db *sql.DB, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(db *sql.DB, cfg *config.ApiConfig) *AuthHandler {
 	return &AuthHandler{db: db, cfg: cfg}
 }
 
