@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/taslavich/frontBack/models"
+	"github.com/taslavich/frontBack/storage"
 	"github.com/taslavich/frontBack/utils"
 )
 
@@ -33,6 +35,7 @@ func (h *MarketingHandler) ListCreatives(w http.ResponseWriter, r *http.Request)
 			utils.WriteError(w, 500, "Scan error")
 			return
 		}
+		h.enrichCreativeWithURL(r, &cr)
 		items = append(items, cr)
 	}
 	utils.WriteJSON(w, 200, items)
@@ -55,12 +58,23 @@ func (h *MarketingHandler) CreateCreative(w http.ResponseWriter, r *http.Request
 		utils.WriteError(w, 400, "Invalid JSON")
 		return
 	}
+	if c.S3FilePath != nil && h.creativeStorage != nil && !h.skipCreativeObjectCheck {
+		if err := h.creativeStorage.EnsureObjectExists(r.Context(), *c.S3FilePath); err != nil {
+			if errors.Is(err, storage.ErrObjectNotFound) {
+				utils.WriteError(w, 400, "Creative file not found in S3 by provided s3_file_path")
+				return
+			}
+			utils.WriteError(w, 500, "Unable to validate creative file in S3")
+			return
+		}
+	}
 	c.CampaignID = cid
 	created, err := scanCreativeRow(h.db.QueryRow(`INSERT INTO creatives (campaign_id,creative_name,link,trackers_macros,w,h,s3_file_path,file_format,title,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,campaign_id,creative_name,link,trackers_macros,w,h,s3_file_path,file_format,title,description`, c.CampaignID, c.CreativeName, c.Link, c.TrackersMacros, c.W, c.H, c.S3FilePath, c.FileFormat, c.Title, c.Description))
 	if err != nil {
 		utils.WriteError(w, 500, "Create failed")
 		return
 	}
+	h.enrichCreativeWithURL(r, &created)
 	utils.WriteJSON(w, 200, created)
 }
 
@@ -126,5 +140,42 @@ func (h *MarketingHandler) DeleteCreative(w http.ResponseWriter, r *http.Request
 }
 
 func (h *MarketingHandler) GetUploadURL(w http.ResponseWriter, r *http.Request) {
-	utils.WriteJSON(w, 200, map[string]interface{}{"upload_url": "https://example-upload.local/presigned", "s3_file_path": fmt.Sprintf("creatives/%d", time.Now().UnixNano()), "expires_in": 900})
+	if h.creativeStorage == nil {
+		utils.WriteError(w, 500, "S3 integration is not configured")
+		return
+	}
+
+	var req struct {
+		FileName    string `json:"file_name"`
+		ContentType string `json:"content_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, 400, "Invalid JSON")
+		return
+	}
+
+	trimmedName := strings.TrimSpace(req.FileName)
+	if trimmedName == "" {
+		utils.WriteError(w, 400, "file_name is required")
+		return
+	}
+	safeName := strings.ReplaceAll(trimmedName, " ", "_")
+	key := fmt.Sprintf("creatives/%d_%s", time.Now().UnixNano(), safeName)
+	uploadURL, err := h.creativeStorage.PresignPutObject(r.Context(), key, req.ContentType)
+	if err != nil {
+		utils.WriteError(w, 500, "Failed to generate S3 upload URL")
+		return
+	}
+
+	utils.WriteJSON(w, 200, map[string]interface{}{"upload_url": uploadURL, "s3_file_path": key})
+}
+
+func (h *MarketingHandler) enrichCreativeWithURL(r *http.Request, cr *models.Creative) {
+	if h.creativeStorage == nil || cr.S3FilePath == nil || strings.TrimSpace(*cr.S3FilePath) == "" {
+		return
+	}
+	url, err := h.creativeStorage.PresignGetObject(r.Context(), *cr.S3FilePath)
+	if err == nil {
+		cr.CreativeURL = &url
+	}
 }

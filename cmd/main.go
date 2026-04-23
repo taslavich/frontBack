@@ -13,6 +13,7 @@ import (
 	"github.com/taslavich/frontBack/db"
 	"github.com/taslavich/frontBack/handlers"
 	"github.com/taslavich/frontBack/middleware"
+	"github.com/taslavich/frontBack/storage"
 )
 
 func main() {
@@ -50,6 +51,23 @@ func main() {
 	// Инициализация хендлеров
 	authHandler := handlers.NewAuthHandler(pgDB, cfg)
 	profileHandler := handlers.NewProfileHandler(pgDB)
+	var creativeStorage *storage.S3Storage
+	if cfg.S3.Bucket != "" {
+		creativeStorage, err = storage.NewS3Storage(
+			ctx,
+			cfg.S3.Region,
+			cfg.S3.Bucket,
+			cfg.S3.AccessKeyID,
+			cfg.S3.SecretAccessKey,
+			cfg.S3.SessionToken,
+			cfg.S3.UploadURLTTL,
+			cfg.S3.DownloadURLTTL,
+		)
+		if err != nil {
+			log.Fatalf("S3 initialization error: %v", err)
+		}
+	}
+	marketingHandler := handlers.NewMarketingHandler(pgDB, creativeStorage, cfg.S3.SkipObjectHeadCheck)
 
 	// Публичные маршруты
 	router.Post("/api/auth/signup", authHandler.Signup)
@@ -64,6 +82,11 @@ func main() {
 		r.Post("/api/auth/password", authHandler.ChangePassword)
 		r.Get("/api/profile", profileHandler.GetProfile)
 		r.Patch("/api/profile", profileHandler.PatchProfile)
+		r.Get("/api/campaigns/{cid}/creatives", marketingHandler.ListCreatives)
+		r.Post("/api/campaigns/{cid}/creatives", marketingHandler.CreateCreative)
+		r.Patch("/api/creatives/{id}", marketingHandler.PatchCreative)
+		r.Delete("/api/creatives/{id}", marketingHandler.DeleteCreative)
+		r.Post("/api/creatives/upload-url", marketingHandler.GetUploadURL)
 	})
 
 	// Запуск сервера

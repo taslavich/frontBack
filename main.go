@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -11,10 +12,12 @@ import (
 	"github.com/taslavich/frontBack/db"
 	"github.com/taslavich/frontBack/handlers"
 	"github.com/taslavich/frontBack/middleware"
+	"github.com/taslavich/frontBack/storage"
 )
 
 func main() {
 	cfg := config.Load()
+	ctx := context.Background()
 	pgDB, err := db.NewPostgres(cfg.PostgresDSN)
 	if err != nil {
 		log.Fatal("Postgres connection error:", err)
@@ -35,7 +38,24 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(pgDB, cfg)
 	profileHandler := handlers.NewProfileHandler(pgDB)
-	marketingHandler := handlers.NewMarketingHandler(pgDB)
+	var creativeStorage *storage.S3Storage
+	if cfg.S3.Bucket != "" {
+		creativeStorage, err = storage.NewS3Storage(
+			ctx,
+			cfg.S3.Region,
+			cfg.S3.Bucket,
+			cfg.S3.AccessKeyID,
+			cfg.S3.SecretAccessKey,
+			cfg.S3.SessionToken,
+			cfg.S3.UploadURLTTL,
+			cfg.S3.DownloadURLTTL,
+		)
+		if err != nil {
+			log.Fatal("S3 init error:", err)
+		}
+	}
+
+	marketingHandler := handlers.NewMarketingHandler(pgDB, creativeStorage, cfg.S3.SkipObjectHeadCheck)
 
 	// Публичные маршруты
 	r.Post("/api/auth/signup", authHandler.Signup)
