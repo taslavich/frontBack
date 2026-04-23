@@ -55,11 +55,22 @@ type ApiConfig struct {
 	AccessTokenTTL  int    `yaml:"ACCESS_TOKEN_TTL" env:"ACCESS_TOKEN_TTL" env-default:"15"`    // minutes
 	RefreshTokenTTL int    `yaml:"REFRESH_TOKEN_TTL" env:"REFRESH_TOKEN_TTL" env-default:"720"` // hours
 	FrontendURL     string `yaml:"FRONTEND_URL" env:"FRONTEND_URL" env-default:"https://twinbid.io"`
+	S3              S3Config
 }
 
 type HttpServer struct {
 	Host string `yaml:"HTTP_HOSTNAME" env:"HTTP_HOSTNAME" env-default:"0.0.0.0"`
 	Port uint16 `yaml:"HTTP_PORT" env:"HTTP_PORT" env-default:"8080"`
+}
+
+type S3Config struct {
+	Region          string `yaml:"AWS_REGION" env:"AWS_REGION" env-default:"us-east-1"`
+	Bucket          string `yaml:"S3_BUCKET" env:"S3_BUCKET"`
+	AccessKeyID     string `yaml:"AWS_ACCESS_KEY_ID" env:"AWS_ACCESS_KEY_ID"`
+	SecretAccessKey string `yaml:"AWS_SECRET_ACCESS_KEY" env:"AWS_SECRET_ACCESS_KEY"`
+	SessionToken    string `yaml:"AWS_SESSION_TOKEN" env:"AWS_SESSION_TOKEN"`
+	UploadURLTTL    int    `yaml:"S3_UPLOAD_URL_TTL_SECONDS" env:"S3_UPLOAD_URL_TTL_SECONDS" env-default:"900"`
+	DownloadURLTTL  int    `yaml:"S3_DOWNLOAD_URL_TTL_SECONDS" env:"S3_DOWNLOAD_URL_TTL_SECONDS" env-default:"900"`
 }
 
 func (s HttpServer) Addr() string {

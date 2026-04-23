@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -9,9 +10,22 @@ import (
 	"github.com/taslavich/frontBack/models"
 )
 
-type MarketingHandler struct{ db *sql.DB }
+type creativeStorage interface {
+	PresignPutObject(ctx context.Context, objectKey, contentType string) (string, error)
+	PresignGetObject(ctx context.Context, objectKey string) (string, error)
+}
 
-func NewMarketingHandler(db *sql.DB) *MarketingHandler { return &MarketingHandler{db: db} }
+type MarketingHandler struct {
+	db              *sql.DB
+	creativeStorage creativeStorage
+}
+
+func NewMarketingHandler(db *sql.DB, creativeStorage creativeStorage) *MarketingHandler {
+	return &MarketingHandler{
+		db:              db,
+		creativeStorage: creativeStorage,
+	}
+}
 
 func userIDFromCtx(r *http.Request) (string, bool) {
 	uid, ok := r.Context().Value(middleware.UserIDKey).(string)

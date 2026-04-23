@@ -43,6 +43,7 @@ type Creative struct {
 	FileFormat     *string        `json:"file_format,omitempty"`
 	Title          *string        `json:"title,omitempty"`
 	Description    *string        `json:"description,omitempty"`
+	CreativeURL    *string        `json:"creative_url,omitempty"`
 }
 
 type UserTransaction struct {
