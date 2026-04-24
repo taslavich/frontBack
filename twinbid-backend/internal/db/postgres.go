@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -206,6 +207,11 @@ func InitDBAndMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 
 // Вспомогательная функция: извлекает имя БД из DSN
 func extractDatabaseName(dsn string) string {
+	if u, err := url.Parse(dsn); err == nil {
+		if dbName := strings.TrimPrefix(u.Path, "/"); dbName != "" {
+			return dbName
+		}
+	}
 	// Ищем /имя_бд? или /имя_бд
 	for i := len(dsn) - 1; i >= 0; i-- {
 		if dsn[i] == '/' {
@@ -222,10 +228,17 @@ func extractDatabaseName(dsn string) string {
 
 // Вспомогательная функция: убирает имя БД из DSN
 func removeDatabaseFromDSN(dsn string) string {
+	if u, err := url.Parse(dsn); err == nil {
+		u.Path = "/postgres"
+		return u.String()
+	}
 	// Заменяем /имя_бд на /postgres
 	for i := len(dsn) - 1; i >= 0; i-- {
 		if dsn[i] == '/' {
-			return dsn[:i+1] + "postgres" + dsn[strings.Index(dsn[i:], "?"):]
+			if qIdx := strings.Index(dsn[i:], "?"); qIdx >= 0 {
+				return dsn[:i+1] + "postgres" + dsn[i+qIdx:]
+			}
+			return dsn[:i+1] + "postgres"
 		}
 	}
 	return dsn
