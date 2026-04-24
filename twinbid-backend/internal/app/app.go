@@ -1,0 +1,174 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"twinbid-backend/internal/auth"
+	"twinbid-backend/internal/campaigns"
+	"twinbid-backend/internal/config"
+	"twinbid-backend/internal/creatives"
+	"twinbid-backend/internal/db"
+	"twinbid-backend/internal/notifications"
+	"twinbid-backend/internal/profile"
+	"twinbid-backend/internal/promocodes"
+	"twinbid-backend/internal/stats"
+	"twinbid-backend/internal/storage"
+	"twinbid-backend/internal/topups"
+)
+
+type App struct {
+	Cfg      config.Config
+	Postgres *sql.DB
+	Stats    *stats.Service
+	Router   http.Handler
+}
+
+func New(ctx context.Context, cfg config.Config) (*App, error) {
+	pg, err := db.NewPostgres(ctx, cfg.Postgres.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: %w", err)
+	}
+	if err := db.Migrate(ctx, pg); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
+	s3, err := storage.NewS3(ctx, cfg.S3)
+	if err != nil {
+		return nil, fmt.Errorf("s3: %w", err)
+	}
+	statsSvc, err := stats.NewService(ctx, cfg.ClickHouse)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: %w", err)
+	}
+
+	authRepo := auth.NewRepository(pg)
+	authSvc := auth.NewService(authRepo, cfg.JWT)
+	authHandler := auth.NewHandler(authSvc)
+
+	profileSvc := profile.NewService(profile.NewRepository(pg))
+	profileHandler := profile.NewHandler(profileSvc)
+
+	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg))
+	campaignHandler := campaigns.NewHandler(campaignSvc)
+
+	creativeSvc := creatives.NewService(creatives.NewRepository(pg), campaignSvc, s3)
+	creativeHandler := creatives.NewHandler(creativeSvc)
+
+	promoRepo := promocodes.NewRepository(pg)
+	promoSvc := promocodes.NewService(promoRepo)
+	promoHandler := promocodes.NewHandler(promoSvc)
+
+	topupSvc := topups.NewService(topups.NewRepository(pg), promoSvc, promoRepo)
+	topupHandler := topups.NewHandler(topupSvc)
+
+	notificationSvc := notifications.NewService(notifications.NewRepository(pg))
+	notificationHandler := notifications.NewHandler(notificationSvc)
+
+	statsHandler := stats.NewHandler(statsSvc)
+
+	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
+	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
+}
+
+func (a *App) Close() error {
+	if a.Stats != nil {
+		_ = a.Stats.Close()
+	}
+	if a.Postgres != nil {
+		return a.Postgres.Close()
+	}
+	return nil
+}
+
+func (a *App) Server() *http.Server {
+	return &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", a.Cfg.HTTP.Host, a.Cfg.HTTP.Port),
+		Handler:           a.Router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+}
+
+func buildRouter(
+	authSvc *auth.Service,
+	authHandler *auth.Handler,
+	profileHandler *profile.Handler,
+	campaignHandler *campaigns.Handler,
+	creativeHandler *creatives.Handler,
+	promoHandler *promocodes.Handler,
+	topupHandler *topups.Handler,
+	notificationHandler *notifications.Handler,
+	statsHandler *stats.Handler,
+) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(cors)
+
+	r.Route("/api/auth", func(r chi.Router) {
+		r.Post("/signup", authHandler.Signup)
+		r.Post("/login", authHandler.Login)
+		r.Post("/refresh", authHandler.Refresh)
+		r.Get("/session", authHandler.Session)
+		r.Group(func(r chi.Router) {
+			r.Use(auth.Middleware(authSvc))
+			r.Post("/logout", authHandler.Logout)
+			r.Post("/password", authHandler.ChangePassword)
+		})
+	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Middleware(authSvc))
+		r.Get("/api/profile", profileHandler.Get)
+		r.Patch("/api/profile", profileHandler.Patch)
+
+		r.Get("/api/campaigns", campaignHandler.List)
+		r.Post("/api/campaigns", campaignHandler.Create)
+		r.Get("/api/campaigns/{id}", campaignHandler.Get)
+		r.Patch("/api/campaigns/{id}", campaignHandler.Patch)
+		r.Delete("/api/campaigns/{id}", campaignHandler.Delete)
+
+		r.Get("/api/campaigns/{campaignID}/creatives", creativeHandler.ListByCampaign)
+		r.Post("/api/campaigns/{campaignID}/creatives", creativeHandler.Create)
+		r.Patch("/api/creatives/{id}", creativeHandler.Patch)
+		r.Delete("/api/creatives/{id}", creativeHandler.Delete)
+
+		r.Get("/api/topups", topupHandler.List)
+		r.Post("/api/topups", topupHandler.Create)
+		r.Post("/api/topups/{id}/cancel", topupHandler.Cancel)
+		// Backend-only action. Frontend may ignore it; PATCH /api/topups/{id} intentionally is not implemented.
+		r.Post("/api/topups/{id}/approve", topupHandler.Approve)
+
+		r.Get("/api/promocodes/{code}", promoHandler.GetByCode)
+
+		r.Get("/api/notifications", notificationHandler.List)
+		r.Post("/api/notifications", notificationHandler.Create)
+		r.Patch("/api/notifications/{id}", notificationHandler.Patch)
+
+		r.Post("/api/stats/query", statsHandler.Query)
+		r.Get("/api/stats/campaign/{id}/summary", statsHandler.CampaignSummary)
+		r.Get("/api/stats/overview", statsHandler.Overview)
+	})
+
+	return r
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Accept")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
