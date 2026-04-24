@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -151,4 +152,81 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// InitDBAndMigrate создаёт БД при необходимости и запускает миграцию
+func InitDBAndMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
+	// Подключаемся к системной БД postgres
+	sysDSN := removeDatabaseFromDSN(dsn)
+
+	sysDB, err := sql.Open("postgres", sysDSN)
+	if err != nil {
+		return nil, err
+	}
+	defer sysDB.Close()
+
+	if err := sysDB.PingContext(ctx); err != nil {
+		return nil, err
+	}
+
+	// Извлекаем имя БД
+	dbName := extractDatabaseName(dsn)
+
+	// Проверяем существует ли БД
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)`
+	err = sysDB.QueryRowContext(ctx, query, dbName).Scan(&exists)
+	if err != nil {
+		return nil, err
+	}
+
+	// Создаём БД если не существует
+	if !exists {
+		_, err = sysDB.ExecContext(ctx, "CREATE DATABASE "+dbName)
+		if err != nil {
+			return nil, err
+		}
+		log.Printf("✅ Database '%s' created successfully", dbName)
+	}
+
+	// Подключаемся к нашей БД и запускаем миграцию
+	db, err := NewPostgres(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	log.Println("✅ Migration completed successfully")
+	return db, nil
+}
+
+// Вспомогательная функция: извлекает имя БД из DSN
+func extractDatabaseName(dsn string) string {
+	// Ищем /имя_бд? или /имя_бд
+	for i := len(dsn) - 1; i >= 0; i-- {
+		if dsn[i] == '/' {
+			start := i + 1
+			end := start
+			for end < len(dsn) && dsn[end] != '?' && dsn[end] != '&' {
+				end++
+			}
+			return dsn[start:end]
+		}
+	}
+	return "twinbid"
+}
+
+// Вспомогательная функция: убирает имя БД из DSN
+func removeDatabaseFromDSN(dsn string) string {
+	// Заменяем /имя_бд на /postgres
+	for i := len(dsn) - 1; i >= 0; i-- {
+		if dsn[i] == '/' {
+			return dsn[:i+1] + "postgres" + dsn[strings.Index(dsn[i:], "?"):]
+		}
+	}
+	return dsn
 }

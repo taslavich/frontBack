@@ -1,0 +1,22 @@
+[Unit]
+Description=frontBack API Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/RTB/frontBack/twinbid-backend/cmd/api
+ExecStart=/root/RTB/frontBack/twinbid-backend/cmd/api/main
+Restart=always
+RestartSec=1
+
+EnvironmentFile=/root/RTB/frontBack/twinbid-backend/cmd/api/api.env
+
+# Логирование
+StandardOutput=append:/var/log/frontBack/api.log
+StandardError=append:/var/log/frontBack/api.error.log
+SyslogIdentifier=frontBack
+
+[Install]
+WantedBy=multi-user.target

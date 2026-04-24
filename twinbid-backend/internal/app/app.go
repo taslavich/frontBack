@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"twinbid-backend/internal/auth"
 	"twinbid-backend/internal/campaigns"
 	"twinbid-backend/internal/config"
@@ -20,6 +18,9 @@ import (
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
 	"twinbid-backend/internal/topups"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type App struct {
@@ -30,12 +31,9 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
-	pg, err := db.NewPostgres(ctx, cfg.Postgres.DSN)
+	pg, err := db.InitDBAndMigrate(ctx, cfg.Postgres.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
-	}
-	if err := db.Migrate(ctx, pg); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
 	s3, err := storage.NewS3(ctx, cfg.S3)
