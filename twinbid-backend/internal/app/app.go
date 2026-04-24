@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -35,6 +36,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
+	log.Println("✅ Connected to Postgres")
 
 	s3, err := storage.NewS3(ctx, cfg.S3)
 	if err != nil {
