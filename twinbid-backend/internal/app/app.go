@@ -42,10 +42,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("s3: %w", err)
 	}
-	statsSvc, err := stats.NewService(ctx, cfg.ClickHouse)
+	/*statsSvc, err := stats.NewService(ctx, cfg.ClickHouse)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: %w", err)
-	}
+	}*/
 
 	authRepo := auth.NewRepository(pg)
 	authSvc := auth.NewService(authRepo, cfg.JWT)
@@ -70,10 +70,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	notificationSvc := notifications.NewService(notifications.NewRepository(pg))
 	notificationHandler := notifications.NewHandler(notificationSvc)
 
-	statsHandler := stats.NewHandler(statsSvc)
+	/*statsHandler := stats.NewHandler(statsSvc)*/
 
-	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
-	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
+	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, nil /*statsHandler*/)
+	return &App{Cfg: cfg, Postgres: pg /*Stats: statsSvc,*/, Router: r}, nil
 }
 
 func (a *App) Close() error {
@@ -152,9 +152,9 @@ func buildRouter(
 		r.Post("/api/notifications", notificationHandler.Create)
 		r.Patch("/api/notifications/{id}", notificationHandler.Patch)
 
-		r.Post("/api/stats/query", statsHandler.Query)
+		/*r.Post("/api/stats/query", statsHandler.Query)
 		r.Get("/api/stats/campaign/{id}/summary", statsHandler.CampaignSummary)
-		r.Get("/api/stats/overview", statsHandler.Overview)
+		r.Get("/api/stats/overview", statsHandler.Overview)*/
 	})
 
 	return r
