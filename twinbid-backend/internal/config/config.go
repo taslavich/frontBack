@@ -13,6 +13,9 @@ type Config struct {
 	JWT        JWTConfig
 	ClickHouse ClickHouseConfig
 	S3         S3Config
+
+	TLSCertFile string
+	TLSKeyFile  string
 }
 
 type HTTPConfig struct {

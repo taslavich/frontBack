@@ -31,8 +31,18 @@ func main() {
 	srv := application.Server()
 	go func() {
 		log.Printf("HTTP server started on %s", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server: %v", err)
+		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+			log.Printf("https enabled")
+			if err := srv.ListenAndServeTLS(
+				cfg.TLSCertFile,
+				cfg.TLSKeyFile,
+			); err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("server: %v", err)
+			}
 		}
 	}()
 
