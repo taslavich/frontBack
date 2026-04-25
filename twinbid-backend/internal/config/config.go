@@ -1,159 +1,72 @@
 package config
 
 import (
-	"fmt"
-	"os"
-	"strconv"
+	"context"
+	"log"
 	"time"
+
+	"github.com/ilyakaznacheev/cleanenv"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	HTTP       HTTPConfig
-	Postgres   PostgresConfig
-	JWT        JWTConfig
-	ClickHouse ClickHouseConfig
-	S3         S3Config
-
-	TLSCertFile string
-	TLSKeyFile  string
+	HTTP        HTTPConfig       `env:"HTTP"`
+	Postgres    PostgresConfig   `env:"POSTGRES"`
+	JWT         JWTConfig        `env:"JWT"`
+	ClickHouse  ClickHouseConfig `env:"CLICKHOUSE"`
+	S3          S3Config         `env:"S3"`
+	TLSCertFile string           `env:"TLS_CERT_FILE"`
+	TLSKeyFile  string           `env:"TLS_KEY_FILE"`
 }
 
 type HTTPConfig struct {
-	Host string
-	Port int
+	Host string `env:"HOST" env-default:"0.0.0.0"`
+	Port int    `env:"PORT" env-default:"8080"`
 }
 
 type PostgresConfig struct {
-	DSN string
+	DSN string `env:"DSN" env-default:"postgres://twinbid:twinbid@localhost:5432/twinbid?sslmode=disable"`
 }
 
 type JWTConfig struct {
-	Secret     string
-	AccessTTL  time.Duration
-	RefreshTTL time.Duration
+	Secret     string        `env:"SECRET" env-required:"true"`
+	AccessTTL  time.Duration `env:"ACCESS_TTL" env-default:"15m"`
+	RefreshTTL time.Duration `env:"REFRESH_TTL" env-default:"720h"`
 }
 
 type ClickHouseConfig struct {
-	Addr     string
-	Database string
-	Username string
-	Password string
-	Secure   bool
-	Table    string
+	Addr     string `env:"ADDR" env-default:"localhost:9000"`
+	Database string `env:"DATABASE" env-default:"twinbid"`
+	Username string `env:"USERNAME" env-default:"default"`
+	Password string `env:"PASSWORD" env-default:""`
+	Secure   bool   `env:"SECURE" env-default:"false"`
+	Table    string `env:"STATS_TABLE" env-default:"campaign_stats"`
 }
 
 type S3Config struct {
-	Endpoint     string
-	Region       string
-	Bucket       string
-	AccessKey    string
-	SecretKey    string
-	UsePathStyle bool
-	PresignTTL   time.Duration
+	Endpoint     string        `env:"ENDPOINT" env-default:"http://localhost:9002"`
+	Region       string        `env:"REGION" env-default:"us-east-1"`
+	Bucket       string        `env:"BUCKET" env-default:"twinbid-creatives"`
+	AccessKey    string        `env:"ACCESS_KEY" env-default:"minioadmin"`
+	SecretKey    string        `env:"SECRET_KEY" env-default:"minioadmin"`
+	UsePathStyle bool          `env:"USE_PATH_STYLE" env-default:"true"`
+	PresignTTL   time.Duration `env:"PRESIGN_TTL" env-default:"15m"`
 }
 
-func Load() (Config, error) {
-	port, err := intEnv("HTTP_PORT", 8080)
-	if err != nil {
-		return Config{}, err
-	}
-	accessTTL, err := durationEnv("ACCESS_TOKEN_TTL", 15*time.Minute)
-	if err != nil {
-		return Config{}, err
-	}
-	refreshTTL, err := durationEnv("REFRESH_TOKEN_TTL", 720*time.Hour)
-	if err != nil {
-		return Config{}, err
-	}
-	presignTTL, err := durationEnv("S3_PRESIGN_TTL", 15*time.Minute)
-	if err != nil {
-		return Config{}, err
-	}
-	secure, err := boolEnv("CLICKHOUSE_SECURE", false)
-	if err != nil {
-		return Config{}, err
-	}
-	usePathStyle, err := boolEnv("S3_USE_PATH_STYLE", true)
-	if err != nil {
-		return Config{}, err
-	}
-
-	cfg := Config{
-		HTTP: HTTPConfig{
-			Host: strEnv("HTTP_HOST", "0.0.0.0"),
-			Port: port,
-		},
-		Postgres: PostgresConfig{
-			DSN: strEnv("POSTGRES_DSN", "postgres://twinbid:twinbid@localhost:5432/twinbid?sslmode=disable"),
-		},
-		JWT: JWTConfig{
-			Secret:     strEnv("JWT_SECRET", "change-me"),
-			AccessTTL:  accessTTL,
-			RefreshTTL: refreshTTL,
-		},
-		ClickHouse: ClickHouseConfig{
-			Addr:     strEnv("CLICKHOUSE_ADDR", "localhost:9000"),
-			Database: strEnv("CLICKHOUSE_DATABASE", "twinbid"),
-			Username: strEnv("CLICKHOUSE_USERNAME", "default"),
-			Password: strEnv("CLICKHOUSE_PASSWORD", ""),
-			Secure:   secure,
-			Table:    strEnv("CLICKHOUSE_STATS_TABLE", "campaign_stats"),
-		},
-		S3: S3Config{
-			Endpoint:     strEnv("S3_ENDPOINT", "http://localhost:9002"),
-			Region:       strEnv("S3_REGION", "us-east-1"),
-			Bucket:       strEnv("S3_BUCKET", "twinbid-creatives"),
-			AccessKey:    strEnv("S3_ACCESS_KEY", "minioadmin"),
-			SecretKey:    strEnv("S3_SECRET_KEY", "minioadmin"),
-			UsePathStyle: usePathStyle,
-			PresignTTL:   presignTTL,
-		},
-	}
-	if cfg.JWT.Secret == "" {
-		return Config{}, fmt.Errorf("JWT_SECRET is required")
-	}
-	return cfg, nil
+func getEnvFileNames() []string {
+	return []string{".env.local", ".env", "api.env"}
 }
 
-func strEnv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func Load(ctx context.Context) (*Config, error) {
+	for _, fileName := range getEnvFileNames() {
+		if err := godotenv.Load(fileName); err != nil {
+			log.Printf("error loading %s: %v", fileName, err)
+		}
 	}
-	return def
-}
 
-func intEnv(key string, def int) (int, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
+	var cfg Config
+	if err := cleanenv.ReadEnv(&cfg); err != nil {
+		return nil, err
 	}
-	out, err := strconv.Atoi(v)
-	if err != nil {
-		return 0, fmt.Errorf("invalid %s: %w", key, err)
-	}
-	return out, nil
-}
-
-func boolEnv(key string, def bool) (bool, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	out, err := strconv.ParseBool(v)
-	if err != nil {
-		return false, fmt.Errorf("invalid %s: %w", key, err)
-	}
-	return out, nil
-}
-
-func durationEnv(key string, def time.Duration) (time.Duration, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
-	}
-	out, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("invalid %s: %w", key, err)
-	}
-	return out, nil
+	return &cfg, nil
 }
