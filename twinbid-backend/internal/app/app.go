@@ -140,11 +140,11 @@ func buildRouter(
 		r.Patch("/api/creatives/{id}", creativeHandler.Patch)
 		r.Delete("/api/creatives/{id}", creativeHandler.Delete)
 
-		r.Get("/api/topups", topupHandler.List)
-		r.Post("/api/topups", topupHandler.Create)
-		r.Post("/api/topups/{id}/cancel", topupHandler.Cancel)
-		// Backend-only action. Frontend may ignore it; PATCH /api/topups/{id} intentionally is not implemented.
-		r.Post("/api/topups/{id}/approve", topupHandler.Approve)
+		r.Get("/api/transactions", topupHandler.List)
+		r.Post("/api/transactions", topupHandler.Create)
+		r.Post("/api/transactions/{id}/cancel", topupHandler.Cancel)
+		// Backend-only action. Frontend may ignore it; PATCH /api/transactions/{id} intentionally is not implemented.
+		r.Post("/api/transactions/{id}/approve", topupHandler.Approve)
 
 		r.Get("/api/promocodes/{code}", promoHandler.GetByCode)
 
