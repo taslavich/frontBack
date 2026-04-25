@@ -17,12 +17,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg, err := config.Load()
+	cfg, err := config.Load(ctx)
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
 
-	application, err := app.New(ctx, cfg)
+	application, err := app.New(ctx, *cfg)
 	if err != nil {
 		log.Fatalf("app init: %v", err)
 	}
