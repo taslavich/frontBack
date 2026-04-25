@@ -10,47 +10,47 @@ import (
 )
 
 type Config struct {
-	HTTP        HTTPConfig       `env:"HTTP"`
-	Postgres    PostgresConfig   `env:"POSTGRES"`
-	JWT         JWTConfig        `env:"JWT"`
-	ClickHouse  ClickHouseConfig `env:"CLICKHOUSE"`
-	S3          S3Config         `env:"S3"`
-	TLSCertFile string           `env:"TLS_CERT_FILE"`
-	TLSKeyFile  string           `env:"TLS_KEY_FILE"`
+	HTTP        HTTPConfig
+	Postgres    PostgresConfig
+	JWT         JWTConfig
+	ClickHouse  ClickHouseConfig
+	S3          S3Config
+	TLSCertFile string `env:"TLS_CERT_FILE"`
+	TLSKeyFile  string `env:"TLS_KEY_FILE"`
 }
 
 type HTTPConfig struct {
-	Host string `env:"HOST" env-default:"0.0.0.0"`
-	Port int    `env:"PORT" env-default:"8080"`
+	Host string `env:"HTTP_HOSTNAME" env-default:"0.0.0.0"`
+	Port int    `env:"HTTP_PORT" env-default:"8080"`
 }
 
 type PostgresConfig struct {
-	DSN string `env:"DSN" env-default:"postgres://twinbid:twinbid@localhost:5432/twinbid?sslmode=disable"`
+	DSN string `env:"POSTGRES_DSN" env-default:"postgres://twinbid:twinbid@localhost:5432/twinbid?sslmode=disable"`
 }
 
 type JWTConfig struct {
-	Secret     string        `env:"SECRET" env-required:"true"`
-	AccessTTL  time.Duration `env:"ACCESS_TTL" env-default:"15m"`
-	RefreshTTL time.Duration `env:"REFRESH_TTL" env-default:"720h"`
+	Secret     string        `env:"JWT_SECRET" env-required:"true"`
+	AccessTTL  time.Duration `env:"ACCESS_TOKEN_TTL" env-default:"15m"`
+	RefreshTTL time.Duration `env:"REFRESH_TOKEN_TTL" env-default:"720h"`
 }
 
 type ClickHouseConfig struct {
-	Addr     string `env:"ADDR" env-default:"localhost:9000"`
-	Database string `env:"DATABASE" env-default:"twinbid"`
-	Username string `env:"USERNAME" env-default:"default"`
-	Password string `env:"PASSWORD" env-default:""`
-	Secure   bool   `env:"SECURE" env-default:"false"`
-	Table    string `env:"STATS_TABLE" env-default:"campaign_stats"`
+	Addr     string `env:"CLICKHOUSE_ADDR" env-default:"localhost:9000"`
+	Database string `env:"CLICKHOUSE_DATABASE" env-default:"twinbid"`
+	Username string `env:"CLICKHOUSE_USERNAME" env-default:"default"`
+	Password string `env:"CLICKHOUSE_PASSWORD" env-default:""`
+	Secure   bool   `env:"CLICKHOUSE_SECURE" env-default:"false"`
+	Table    string `env:"CLICKHOUSE_STATS_TABLE" env-default:"campaign_stats"`
 }
 
 type S3Config struct {
-	Endpoint     string        `env:"ENDPOINT" env-default:"http://localhost:9002"`
-	Region       string        `env:"REGION" env-default:"us-east-1"`
-	Bucket       string        `env:"BUCKET" env-default:"twinbid-creatives"`
-	AccessKey    string        `env:"ACCESS_KEY" env-default:"minioadmin"`
-	SecretKey    string        `env:"SECRET_KEY" env-default:"minioadmin"`
-	UsePathStyle bool          `env:"USE_PATH_STYLE" env-default:"true"`
-	PresignTTL   time.Duration `env:"PRESIGN_TTL" env-default:"15m"`
+	Endpoint     string        `env:"S3_ENDPOINT" env-default:"http://localhost:9002"`
+	Region       string        `env:"AWS_REGION" env-default:"us-east-1"`
+	Bucket       string        `env:"S3_BUCKET" env-default:"twinbid-creatives"`
+	AccessKey    string        `env:"AWS_ACCESS_KEY_ID" env-default:"minioadmin"`
+	SecretKey    string        `env:"AWS_SECRET_ACCESS_KEY" env-default:"minioadmin"`
+	UsePathStyle bool          `env:"S3_USE_PATH_STYLE" env-default:"true"`
+	PresignTTL   time.Duration `env:"S3_PRESIGN_TTL" env-default:"15m"`
 }
 
 func getEnvFileNames() []string {
