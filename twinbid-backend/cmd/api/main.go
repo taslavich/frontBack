@@ -30,19 +30,9 @@ func main() {
 
 	srv := application.Server()
 	go func() {
-		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
-			log.Printf("HTTPS server started on %s", srv.Addr)
-			if err := srv.ListenAndServeTLS(
-				cfg.TLSCertFile,
-				cfg.TLSKeyFile,
-			); err != nil {
-				log.Fatal(err)
-			}
-		} else {
-			log.Printf("HTTP server started on %s", srv.Addr)
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("server: %v", err)
-			}
+		log.Printf("HTTP server started on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server: %v", err)
 		}
 	}()
 

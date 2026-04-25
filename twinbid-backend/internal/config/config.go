@@ -10,13 +10,11 @@ import (
 )
 
 type Config struct {
-	HTTP        HTTPConfig
-	Postgres    PostgresConfig
-	JWT         JWTConfig
-	ClickHouse  ClickHouseConfig
-	S3          S3Config
-	TLSCertFile string `env:"TLS_CERT_FILE"`
-	TLSKeyFile  string `env:"TLS_KEY_FILE"`
+	HTTP       HTTPConfig
+	Postgres   PostgresConfig
+	JWT        JWTConfig
+	ClickHouse ClickHouseConfig
+	S3         S3Config
 }
 
 type HTTPConfig struct {
