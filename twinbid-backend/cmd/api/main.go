@@ -32,7 +32,6 @@ func main() {
 	go func() {
 		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
 			log.Printf("HTTPS server started on %s", srv.Addr)
-			log.Printf("https enabled")
 			if err := srv.ListenAndServeTLS(
 				cfg.TLSCertFile,
 				cfg.TLSKeyFile,
