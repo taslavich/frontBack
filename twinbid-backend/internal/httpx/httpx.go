@@ -3,7 +3,10 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+
+	"github.com/unrolled/render"
 )
 
 type ErrorBody struct {
@@ -23,27 +26,59 @@ type HTTPError struct {
 	Fields  map[string]string
 }
 
+type APIEnvelope struct {
+	Success  bool   `json:"success"`
+	ErrorMsg string `json:"errorMsg"`
+	Data     any    `json:"data,omitempty"`
+}
+
+var rnr = render.New(render.Options{
+	StreamingJSON: true,
+	UnEscapeHTML:  true,
+})
+
 func (e HTTPError) Error() string { return e.Message }
 
 func JSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if v != nil {
-		_ = json.NewEncoder(w).Encode(v)
+	if err := rnr.JSON(w, status, APIEnvelope{
+		Success:  true,
+		ErrorMsg: "",
+		Data:     v,
+	}); err != nil {
+		log.Printf("Cannot make HTTP response back in JSON: %v\n", err)
 	}
 }
 
 func NoContent(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusNoContent)
+	if err := rnr.JSON(w, http.StatusNoContent, APIEnvelope{
+		Success:  true,
+		ErrorMsg: "",
+		Data:     nil,
+	}); err != nil {
+		log.Printf("Cannot make HTTP response back in JSON: %v\n", err)
+	}
 }
 
 func Error(w http.ResponseWriter, err error) {
 	var he HTTPError
 	if errors.As(err, &he) {
-		JSON(w, he.Status, ErrorBody{Error: ErrorDetails{Code: he.Code, Message: he.Message, Fields: he.Fields}})
+		if err := rnr.JSON(w, he.Status, APIEnvelope{
+			Success:  false,
+			ErrorMsg: he.Message,
+			Data:     nil,
+		}); err != nil {
+			log.Printf("Cannot make HTTP response back in Error: %v\n", err)
+		}
 		return
 	}
-	JSON(w, http.StatusInternalServerError, ErrorBody{Error: ErrorDetails{Code: "internal_error", Message: err.Error()}})
+
+	if err := rnr.JSON(w, http.StatusInternalServerError, APIEnvelope{
+		Success:  false,
+		ErrorMsg: err.Error(),
+		Data:     nil,
+	}); err != nil {
+		log.Printf("Cannot make HTTP response back in Error: %v\n", err)
+	}
 }
 
 func DecodeJSON(r *http.Request, dst any) error {
