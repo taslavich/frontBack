@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* TwinBid Design System - Dark Theme with Mint & Coral Accents */
+
+@layer base {
+  :root {
+    --background: 200 15% 6%;
+    --foreground: 0 0% 98%;
+
+    --card: 200 15% 8%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 200 15% 8%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 168 70% 55%;
+    --primary-foreground: 200 15% 6%;
+
+    --secondary: 200 15% 12%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 200 15% 15%;
+    --muted-foreground: 200 10% 60%;
+
+    --accent: 12 80% 65%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 200 15% 18%;
+    --input: 200 15% 18%;
+    --ring: 168 70% 55%;
+
+    --radius: 0.75rem;
+
+    /* Custom gradient tokens - Mint to Coral */
+    --gradient-primary: linear-gradient(135deg, hsl(168 70% 55%) 0%, hsl(175 65% 45%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(168 70% 55%) 0%, hsl(45 80% 60%) 50%, hsl(12 80% 65%) 100%);
+    --gradient-glow: linear-gradient(180deg, hsl(168 70% 55% / 0.3) 0%, transparent 100%);
+    
+    /* Glow effects */
+    --glow-primary: 0 0 40px hsl(168 70% 55% / 0.35);
+    --glow-accent: 0 0 60px hsl(12 80% 65% / 0.25);
+
+    --sidebar-background: 200 15% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 168 70% 55%;
+    --sidebar-primary-foreground: 200 15% 6%;
+    --sidebar-accent: 200 15% 12%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 200 15% 18%;
+    --sidebar-ring: 168 70% 55%;
+  }
+
+  .dark {
+    --background: 200 15% 6%;
+    --foreground: 0 0% 98%;
+
+    --card: 200 15% 8%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 200 15% 8%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 168 70% 55%;
+    --primary-foreground: 200 15% 6%;
+
+    --secondary: 200 15% 12%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 200 15% 15%;
+    --muted-foreground: 200 10% 60%;
+
+    --accent: 12 80% 65%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 200 15% 18%;
+    --input: 200 15% 18%;
+    --ring: 168 70% 55%;
+
+    --sidebar-background: 200 15% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 168 70% 55%;
+    --sidebar-primary-foreground: 200 15% 6%;
+    --sidebar-accent: 200 15% 12%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 200 15% 18%;
+    --sidebar-ring: 168 70% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-accent {
+    background: var(--gradient-accent);
+  }
+
+  .gradient-text {
+    background: var(--gradient-accent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-accent {
+    box-shadow: var(--glow-accent);
+  }
+
+  .glass {
+    background: hsl(200 15% 10% / 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(200 15% 20% / 0.5);
+  }
+
+  .hover-glow {
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+
+  .hover-glow:hover {
+    box-shadow: var(--glow-primary);
+    transform: translateY(-2px);
+  }
+
+  .scroll-indicator {
+    display: none;
+  }
+}
+
+@media (min-width: 1280px) and (min-height: 800px) {
+  .scroll-indicator {
+    display: flex;
+  }
+}
+
+/* Hide number input spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
