@@ -23,7 +23,7 @@ type User struct {
 }
 
 type Campaign struct {
-	CampaingID         string             `json:"campaing_id"`
+	CampaignID         string             `json:"campaign_id"`
 	UserID             string             `json:"user_id"`
 	CampaignName       string             `json:"campaign_name"`
 	FormatType         string             `json:"format_type"`
@@ -49,6 +49,7 @@ type Campaign struct {
 	Browser            TargetingMap       `json:"browser"`
 	SiteID             TargetingMap       `json:"site_id"`
 	IP                 TargetingMap       `json:"ip"`
+	QualityType        string             `json:"quality_type"`
 }
 
 type Creative struct {

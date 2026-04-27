@@ -80,6 +80,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			browser JSONB NOT NULL DEFAULT '{}'::jsonb,
 			site_id JSONB NOT NULL DEFAULT '{}'::jsonb,
 			ip JSONB NOT NULL DEFAULT '{}'::jsonb,
+			quality_type TEXT NOT NULL,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
@@ -138,6 +139,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON campaigns(user_id);`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS quality_type TEXT;`,
 		`CREATE INDEX IF NOT EXISTS idx_creatives_campaign_id ON creatives(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON user_transactions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);`,
