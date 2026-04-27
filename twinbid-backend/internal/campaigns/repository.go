@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/lib/pq"
 	"twinbid-backend/internal/db"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
@@ -63,7 +62,7 @@ func (r *Repository) Create(ctx context.Context, c models.Campaign) (models.Camp
 		RETURNING campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
 			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars,
 			start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
-	`, c.UserID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, pq.Array(c.Vertical), c.PricingModel,
+	`, c.UserID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical), c.PricingModel,
 		c.BasePriceCPM, c.BasePriceCPC, c.EvennessBySlotMode, c.GoalTotalDollars, c.CumDoneDollars, c.StartTS, c.EndTS,
 		jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType)
 	return scanCampaign(row)
@@ -80,7 +79,7 @@ func (r *Repository) Update(ctx context.Context, c models.Campaign) (models.Camp
 		RETURNING campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
 			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars,
 			start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
-	`, c.UserID, c.CampaignID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, pq.Array(c.Vertical),
+	`, c.UserID, c.CampaignID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical),
 		c.PricingModel, c.BasePriceCPM, c.BasePriceCPC, c.EvennessBySlotMode, c.GoalTotalDollars, c.CumDoneDollars,
 		c.StartTS, c.EndTS, jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType)
 	out, err := scanCampaign(row)
@@ -115,9 +114,8 @@ func scanCampaign(s scanner) (models.Campaign, error) {
 	var c models.Campaign
 	var brand sql.NullString
 	var h, w sql.NullInt64
-	var vertical pq.StringArray
-	var activeRaw, countryRaw, languageRaw, deviceRaw, osRaw, browserRaw, siteRaw, ipRaw []byte
-	err := s.Scan(&c.CampaignID, &c.UserID, &c.CampaignName, &c.FormatType, &brand, &h, &w, &c.Status, &c.TrafficType, &vertical,
+	var verticalRaw, activeRaw, countryRaw, languageRaw, deviceRaw, osRaw, browserRaw, siteRaw, ipRaw []byte
+	err := s.Scan(&c.CampaignID, &c.UserID, &c.CampaignName, &c.FormatType, &brand, &h, &w, &c.Status, &c.TrafficType, &verticalRaw,
 		&c.PricingModel, &c.BasePriceCPM, &c.BasePriceCPC, &c.EvennessBySlotMode, &c.GoalTotalDollars, &c.CumDoneDollars,
 		&c.StartTS, &c.EndTS, &activeRaw, &countryRaw, &languageRaw, &deviceRaw, &osRaw, &browserRaw, &siteRaw, &ipRaw, &c.QualityType)
 	if err != nil {
@@ -134,7 +132,10 @@ func scanCampaign(s scanner) (models.Campaign, error) {
 		v := int(w.Int64)
 		c.W = &v
 	}
-	c.Vertical = []string(vertical)
+	c.Vertical, err = db.UnmarshalTargeting(verticalRaw)
+	if err != nil {
+		return models.Campaign{}, err
+	}
 	c.ActiveIntervals, err = db.UnmarshalIntervals(activeRaw)
 	if err != nil {
 		return models.Campaign{}, err

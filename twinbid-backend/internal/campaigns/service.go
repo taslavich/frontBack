@@ -41,7 +41,7 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		W:                  req.W,
 		Status:             status,
 		TrafficType:        req.TrafficType,
-		Vertical:           nonNilSlice(req.Vertical),
+		Vertical:           nonNilMap(req.Vertical),
 		PricingModel:       req.PricingModel,
 		BasePriceCPM:       req.BasePriceCPM,
 		BasePriceCPC:       req.BasePriceCPC,
@@ -101,7 +101,7 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 		current.TrafficType = *req.TrafficType
 	}
 	if req.Vertical != nil {
-		current.Vertical = *req.Vertical
+		current.Vertical = nonNilMap(*req.Vertical)
 	}
 	if req.PricingModel != nil {
 		current.PricingModel = *req.PricingModel
@@ -195,12 +195,6 @@ func valueOr(v, def string) string {
 func nonNilMap(v models.TargetingMap) models.TargetingMap {
 	if v == nil {
 		return models.TargetingMap{}
-	}
-	return v
-}
-func nonNilSlice(v []string) []string {
-	if v == nil {
-		return []string{}
 	}
 	return v
 }

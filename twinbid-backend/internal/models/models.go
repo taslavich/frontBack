@@ -32,7 +32,7 @@ type Campaign struct {
 	W                  *int               `json:"w"`
 	Status             string             `json:"status"`
 	TrafficType        string             `json:"traffic_type"`
-	Vertical           []string           `json:"vertical"`
+	Vertical           TargetingMap       `json:"vertical"`
 	PricingModel       string             `json:"pricing_model"`
 	BasePriceCPM       float64            `json:"base_price_cpm"`
 	BasePriceCPC       float64            `json:"base_price_cpc"`
