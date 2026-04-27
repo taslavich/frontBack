@@ -34,13 +34,14 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 	c := models.Campaign{
 		UserID:             userID,
 		CampaignName:       req.CampaignName,
+		QualityType:        req.QualityType,
 		FormatType:         req.FormatType,
 		BrandName:          req.BrandName,
 		H:                  req.H,
 		W:                  req.W,
 		Status:             status,
 		TrafficType:        req.TrafficType,
-		Vertical:           nonNilSlice(req.Vertical),
+		Vertical:           nonNilMap(req.Vertical),
 		PricingModel:       req.PricingModel,
 		BasePriceCPM:       req.BasePriceCPM,
 		BasePriceCPC:       req.BasePriceCPC,
@@ -81,6 +82,9 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 	if req.FormatType != nil {
 		current.FormatType = *req.FormatType
 	}
+	if req.QualityType != nil {
+		current.QualityType = *req.QualityType
+	}
 	if req.BrandNameSet {
 		current.BrandName = req.BrandName
 	}
@@ -97,7 +101,7 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 		current.TrafficType = *req.TrafficType
 	}
 	if req.Vertical != nil {
-		current.Vertical = *req.Vertical
+		current.Vertical = nonNilMap(*req.Vertical)
 	}
 	if req.PricingModel != nil {
 		current.PricingModel = *req.PricingModel
@@ -161,6 +165,9 @@ func validateCampaign(c models.Campaign) error {
 	if c.CampaignName == "" {
 		return httpx.BadRequest("campaign_name is required")
 	}
+	if c.QualityType == "" {
+		return httpx.BadRequest("quality_type is required")
+	}
 	if !validFormat[c.FormatType] {
 		return httpx.BadRequest("invalid format_type")
 	}
@@ -188,12 +195,6 @@ func valueOr(v, def string) string {
 func nonNilMap(v models.TargetingMap) models.TargetingMap {
 	if v == nil {
 		return models.TargetingMap{}
-	}
-	return v
-}
-func nonNilSlice(v []string) []string {
-	if v == nil {
-		return []string{}
 	}
 	return v
 }

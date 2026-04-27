@@ -15,7 +15,7 @@ type UpsertCampaignRequest struct {
 	W                  *int                      `json:"w"`
 	Status             string                    `json:"status"`
 	TrafficType        string                    `json:"traffic_type"`
-	Vertical           []string                  `json:"vertical"`
+	Vertical           models.TargetingMap       `json:"vertical"`
 	PricingModel       string                    `json:"pricing_model"`
 	BasePriceCPM       float64                   `json:"base_price_cpm"`
 	BasePriceCPC       float64                   `json:"base_price_cpc"`
@@ -31,6 +31,7 @@ type UpsertCampaignRequest struct {
 	Browser            models.TargetingMap       `json:"browser"`
 	SiteID             models.TargetingMap       `json:"site_id"`
 	IP                 models.TargetingMap       `json:"ip"`
+	QualityType        string                    `json:"quality_type"`
 }
 
 type PatchCampaignRequest struct {
@@ -44,7 +45,7 @@ type PatchCampaignRequest struct {
 	WSet               bool                       `json:"-"`
 	Status             *string                    `json:"status"`
 	TrafficType        *string                    `json:"traffic_type"`
-	Vertical           *[]string                  `json:"vertical"`
+	Vertical           *models.TargetingMap       `json:"vertical"`
 	PricingModel       *string                    `json:"pricing_model"`
 	BasePriceCPM       *float64                   `json:"base_price_cpm"`
 	BasePriceCPC       *float64                   `json:"base_price_cpc"`
@@ -61,6 +62,7 @@ type PatchCampaignRequest struct {
 	Browser            *models.TargetingMap       `json:"browser"`
 	SiteID             *models.TargetingMap       `json:"site_id"`
 	IP                 *models.TargetingMap       `json:"ip"`
+	QualityType        *string                    `json:"quality_type"`
 }
 
 func (p *PatchCampaignRequest) UnmarshalJSON(data []byte) error {

@@ -23,7 +23,7 @@ type User struct {
 }
 
 type Campaign struct {
-	CampaingID         string             `json:"campaing_id"`
+	CampaignID         string             `json:"campaign_id"`
 	UserID             string             `json:"user_id"`
 	CampaignName       string             `json:"campaign_name"`
 	FormatType         string             `json:"format_type"`
@@ -32,7 +32,7 @@ type Campaign struct {
 	W                  *int               `json:"w"`
 	Status             string             `json:"status"`
 	TrafficType        string             `json:"traffic_type"`
-	Vertical           []string           `json:"vertical"`
+	Vertical           TargetingMap       `json:"vertical"`
 	PricingModel       string             `json:"pricing_model"`
 	BasePriceCPM       float64            `json:"base_price_cpm"`
 	BasePriceCPC       float64            `json:"base_price_cpc"`
@@ -49,6 +49,7 @@ type Campaign struct {
 	Browser            TargetingMap       `json:"browser"`
 	SiteID             TargetingMap       `json:"site_id"`
 	IP                 TargetingMap       `json:"ip"`
+	QualityType        string             `json:"quality_type"`
 }
 
 type Creative struct {
