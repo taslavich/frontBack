@@ -31,6 +31,7 @@ type UpsertCampaignRequest struct {
 	Browser            models.TargetingMap       `json:"browser"`
 	SiteID             models.TargetingMap       `json:"site_id"`
 	IP                 models.TargetingMap       `json:"ip"`
+	QualityType        string                    `json:"quality_type"`
 }
 
 type PatchCampaignRequest struct {
@@ -61,6 +62,7 @@ type PatchCampaignRequest struct {
 	Browser            *models.TargetingMap       `json:"browser"`
 	SiteID             *models.TargetingMap       `json:"site_id"`
 	IP                 *models.TargetingMap       `json:"ip"`
+	QualityType        *string                    `json:"quality_type"`
 }
 
 func (p *PatchCampaignRequest) UnmarshalJSON(data []byte) error {
