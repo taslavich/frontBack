@@ -2,15 +2,23 @@ package campaigns
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
+	"twinbid-backend/internal/mailer"
 	"twinbid-backend/internal/models"
 )
 
-type Service struct{ repo *Repository }
+type Service struct {
+	repo    *Repository
+	smtpCfg config.SMTPConfig
+}
 
-func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+func NewService(repo *Repository, smtpCfg config.SMTPConfig) *Service {
+	return &Service{repo: repo, smtpCfg: smtpCfg}
+}
 
 var (
 	validFormat  = map[string]bool{"banner": true, "popunder": true, "native": true, "push": true}
@@ -95,6 +103,7 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 		current.W = req.W
 	}
 	if req.Status != nil {
+		s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status)
 		current.Status = *req.Status
 	}
 	if req.TrafficType != nil {
@@ -155,6 +164,20 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 		return models.Campaign{}, err
 	}
 	return s.repo.Update(ctx, current)
+}
+
+func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) {
+	if !((current.Status == "active" && newStatus == "completed") || (current.Status == "moderation" && newStatus == "active")) {
+		return
+	}
+	user, err := s.repo.GetUserNotificationSettings(ctx, current.UserID)
+	if err != nil || !user.CampaignStatusNotifications || user.Mail == "" {
+		return
+	}
+	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
+	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
+		return
+	}
 }
 
 func (s *Service) Delete(ctx context.Context, userID, campaignID string) error {
