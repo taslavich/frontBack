@@ -14,12 +14,12 @@ import (
 
 type Service struct {
 	repo         *Repository
-	notifyRepo   *notifications.Repository
+	notifySvc    *notifications.Service
 	smtpCfg      config.SMTPConfig
 }
 
-func NewService(repo *Repository, notifyRepo *notifications.Repository, smtpCfg config.SMTPConfig) *Service {
-	return &Service{repo: repo, notifyRepo: notifyRepo, smtpCfg: smtpCfg}
+func NewService(repo *Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig) *Service {
+	return &Service{repo: repo, notifySvc: notifySvc, smtpCfg: smtpCfg}
 }
 
 var (
@@ -180,13 +180,19 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 		return
 	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
-	if err := s.notifyRepo.CreateCampaignStatus(ctx, current.UserID, current.CampaignID, body); err != nil {
+	if _, err := s.notifySvc.Create(ctx, current.UserID, notifications.CreateNotificationRequest{
+		CampaignID: &current.CampaignID,
+		Text:       body,
+		Type:       "campaign_status",
+	}); err != nil {
 		return
 	}
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
 		return
 	}
-	_ = s.repo.IncrementLowBalanceNotificationsCount(ctx, current.UserID)
+	if err := s.repo.IncrementLowBalanceNotificationsCount(ctx, current.UserID); err != nil {
+		return
+	}
 }
 
 func (s *Service) Delete(ctx context.Context, userID, campaignID string) error {

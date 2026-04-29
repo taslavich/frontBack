@@ -90,5 +90,5 @@ type NotificationsConfig struct {
 }
 
 type UsersConfig struct {
-	LowBalanceNotificationsMax int `env:"LOW_BALANCE_NOTIFICATIONS_MAX" env-default:"3"`
+	LowBalanceNotificationsMax int `env:"LOW_BALANCE_NOTIFICATIONS_MAX" env-default:"1"`
 }

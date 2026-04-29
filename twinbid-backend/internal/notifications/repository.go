@@ -146,14 +146,6 @@ func (r *Repository) CreateLowCampaignBalanceIfNeeded(ctx context.Context, userI
 	return err
 }
 
-func (r *Repository) CreateCampaignStatus(ctx context.Context, userID, campaignID, text string) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO notifications (user_id, campaign_id, status, text, type)
-		VALUES ($1, $2, 'active', $3, 'campaign_status')
-	`, userID, campaignID, text)
-	return err
-}
-
 const selectNotification = `SELECT id, user_id, transaction_id, campaign_id, deposit_amount, status, text, type FROM notifications`
 
 type scanner interface{ Scan(dest ...any) error }
