@@ -19,6 +19,7 @@ import (
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
 	"twinbid-backend/internal/topups"
+	"twinbid-backend/internal/mailer"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -68,7 +69,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	profileSvc := profile.NewService(profile.NewRepository(pg))
 	profileHandler := profile.NewHandler(profileSvc)
 
-	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), cfg.SMTP)
+	notificationRepo := notifications.NewRepository(pg)
+	notificationSvc := notifications.NewService(notificationRepo)
+	notificationHandler := notifications.NewHandler(notificationSvc)
+
+	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), notificationSvc, cfg.SMTP)
 	campaignHandler := campaigns.NewHandler(campaignSvc)
 
 	creativeSvc := creatives.NewService(creatives.NewRepository(pg), campaignSvc, s3)
@@ -81,13 +86,86 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupSvc := topups.NewService(topups.NewRepository(pg), promoSvc, promoRepo)
 	topupHandler := topups.NewHandler(topupSvc)
 
-	notificationSvc := notifications.NewService(notifications.NewRepository(pg))
-	notificationHandler := notifications.NewHandler(notificationSvc)
-
 	/*statsHandler := stats.NewHandler(statsSvc)*/
+	go runLowBalanceTicker(ctx, pg, cfg.Notifications.LowBalanceCheckInterval)
+	go runNoBudgetTicker(ctx, pg, cfg)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, nil /*statsHandler*/)
 	return &App{Cfg: cfg, Postgres: pg /*Stats: statsSvc,*/, Router: r}, nil
+}
+
+func runLowBalanceTicker(ctx context.Context, pg *sql.DB, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if _, err := pg.ExecContext(ctx, `
+			UPDATE users
+			SET low_balance_notified = CASE
+				WHEN balance < balance_treshold AND low_balance_notified = false THEN true
+				WHEN balance >= balance_treshold THEN false
+				ELSE low_balance_notified
+			END,
+			updated_at = NOW()
+		`); err != nil {
+				log.Printf("low balance ticker update error: %v", err)
+			}
+		}
+	}
+}
+
+func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config) {
+	t := time.NewTicker(cfg.Notifications.NoBudgetCheckInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			rows, err := pg.QueryContext(ctx, `
+				SELECT c.user_id, c.campaign_id, c.campaign_name, u.mail
+				FROM campaigns c
+				JOIN users u ON u.id = c.user_id
+				WHERE c.goal_total_dollars > 0
+				  AND c.cum_done_dollars >= c.goal_total_dollars
+				  AND c.no_budget_notified = false
+			`)
+			if err != nil {
+				log.Printf("no budget ticker query error: %v", err)
+				continue
+			}
+			for rows.Next() {
+				var userID, campaignID, campaignName, mailTo string
+				if err := rows.Scan(&userID, &campaignID, &campaignName, &mailTo); err != nil {
+					log.Printf("no budget ticker scan error: %v", err)
+					continue
+				}
+				body := fmt.Sprintf("Ваш бюджет закончился, название кампании %s.", campaignName)
+				if _, err := pg.ExecContext(ctx, `INSERT INTO notifications (user_id, campaign_id, status, text, type) VALUES ($1,$2,'active',$3,'other')`, userID, campaignID, body); err != nil {
+					log.Printf("no budget ticker create notification error: %v", err)
+					continue
+				}
+				if mailTo != "" {
+					if err := mailer.SendEmail(cfg.SMTP, mailTo, "Бюджет кампании закончился", body); err != nil {
+						log.Printf("no budget ticker send email error: %v", err)
+					}
+				}
+				if _, err := pg.ExecContext(ctx, `UPDATE campaigns SET no_budget_notified=true, updated_at=NOW() WHERE campaign_id=$1`, campaignID); err != nil {
+					log.Printf("no budget ticker set notified error: %v", err)
+				}
+			}
+			if err := rows.Err(); err != nil {
+				log.Printf("no budget ticker rows iteration error: %v", err)
+			}
+			_ = rows.Close()
+			if _, err := pg.ExecContext(ctx, `UPDATE campaigns SET no_budget_notified=false, updated_at=NOW() WHERE cum_done_dollars < goal_total_dollars`); err != nil {
+				log.Printf("no budget ticker reset notified error: %v", err)
+			}
+		}
+	}
 }
 
 func (a *App) Close() error {

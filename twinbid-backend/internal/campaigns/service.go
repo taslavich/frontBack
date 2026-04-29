@@ -9,22 +9,24 @@ import (
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/mailer"
 	"twinbid-backend/internal/models"
+	"twinbid-backend/internal/notifications"
 )
 
 type Service struct {
-	repo    *Repository
-	smtpCfg config.SMTPConfig
+	repo         *Repository
+	notifySvc    *notifications.Service
+	smtpCfg      config.SMTPConfig
 }
 
-func NewService(repo *Repository, smtpCfg config.SMTPConfig) *Service {
-	return &Service{repo: repo, smtpCfg: smtpCfg}
+func NewService(repo *Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig) *Service {
+	return &Service{repo: repo, notifySvc: notifySvc, smtpCfg: smtpCfg}
 }
 
 var (
 	validFormat  = map[string]bool{"banner": true, "popunder": true, "native": true, "push": true}
 	validPricing = map[string]bool{"cpm": true, "cpc": true}
 	validTraffic = map[string]bool{"mainstream": true, "adult": true, "mixed": true}
-	validStatus  = map[string]bool{"active": true, "paused": true, "draft": true, "completed": true, "moderation": true}
+	validStatus  = map[string]bool{"active": true, "paused": true, "draft": true, "completed": true, "moderation": true, "no_budget": true}
 )
 
 func (s *Service) List(ctx context.Context, userID string) ([]models.Campaign, error) {
@@ -103,7 +105,9 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 		current.W = req.W
 	}
 	if req.Status != nil {
-		s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status)
+		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status); err != nil {
+			return models.Campaign{}, err
+		}
 		current.Status = *req.Status
 	}
 	if req.TrafficType != nil {
@@ -166,18 +170,30 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	return s.repo.Update(ctx, current)
 }
 
-func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) {
-	if !((current.Status == "active" && newStatus == "completed") || (current.Status == "moderation" && newStatus == "active")) {
-		return
-	}
-	user, err := s.repo.GetUserNotificationSettings(ctx, current.UserID)
-	if err != nil || !user.CampaignStatusNotifications || user.Mail == "" {
-		return
+func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) error {
+	if !((current.Status == "active" && newStatus == "completed") || (current.Status == "moderation" && newStatus == "active") || (current.Status == "active" && newStatus == "no_budget")) {
+		return nil
 	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
-	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
-		return
+	if _, err := s.notifySvc.Create(ctx, current.UserID, notifications.CreateNotificationRequest{
+		CampaignID: &current.CampaignID,
+		Text:       body,
+		Type:       "campaign_status",
+	}); err != nil {
+		return fmt.Errorf("create campaign status notification: %w", err)
 	}
+
+	user, err := s.repo.GetUserNotificationSettings(ctx, current.UserID)
+	if err != nil {
+		return fmt.Errorf("get user notification settings: %w", err)
+	}
+	if !user.CampaignStatusNotifications || user.Mail == "" {
+		return nil
+	}
+	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
+		return fmt.Errorf("send campaign status email: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, userID, campaignID string) error {
