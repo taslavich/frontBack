@@ -48,7 +48,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}*/
 
 	authRepo := auth.NewRepository(pg)
-	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
+	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP, cfg.Users)
 	authHandler := auth.NewHandler(authSvc)
 	go func() {
 		t := time.NewTicker(cfg.JWT.RegistrationCleanupIn)

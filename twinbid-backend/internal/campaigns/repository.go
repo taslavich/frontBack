@@ -177,8 +177,21 @@ func jsonArg(v any) any {
 }
 
 func (r *Repository) GetUserNotificationSettings(ctx context.Context, userID string) (models.User, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, mail, campaign_status_notifications FROM users WHERE id=$1`, userID)
+	row := r.db.QueryRowContext(ctx, `SELECT id, mail, campaign_status_notifications, low_balance_notifications_count, low_balance_notifications_max FROM users WHERE id=$1`, userID)
 	var out models.User
-	err := row.Scan(&out.ID, &out.Mail, &out.CampaignStatusNotifications)
+	err := row.Scan(&out.ID, &out.Mail, &out.CampaignStatusNotifications, &out.LowBalanceNotificationsCount, &out.LowBalanceNotificationsMax)
 	return out, err
+}
+
+func (r *Repository) CreateSiteNotification(ctx context.Context, userID, campaignID, text, typ string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO notifications (user_id, campaign_id, status, text, type)
+		VALUES ($1, $2, 'active', $3, $4)
+	`, userID, campaignID, text, typ)
+	return err
+}
+
+func (r *Repository) IncrementLowBalanceNotificationsCount(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET low_balance_notifications_count = low_balance_notifications_count + 1, updated_at=NOW() WHERE id=$1`, userID)
+	return err
 }

@@ -15,10 +15,11 @@ type Service struct {
 	repo    *Repository
 	cfg     config.JWTConfig
 	smtpCfg config.SMTPConfig
+	usersCfg config.UsersConfig
 }
 
-func NewService(repo *Repository, cfg config.JWTConfig, smtpCfg config.SMTPConfig) *Service {
-	return &Service{repo: repo, cfg: cfg, smtpCfg: smtpCfg}
+func NewService(repo *Repository, cfg config.JWTConfig, smtpCfg config.SMTPConfig, usersCfg config.UsersConfig) *Service {
+	return &Service{repo: repo, cfg: cfg, smtpCfg: smtpCfg, usersCfg: usersCfg}
 }
 
 type AuthResponse struct {
@@ -36,7 +37,7 @@ func (s *Service) Signup(ctx context.Context, email, password, fullName, manager
 	if email == "" || password == "" || managerTelegram == "" {
 		return AuthResponse{}, httpx.BadRequest("email, password and manager_telegram are required")
 	}
-	u, err := s.repo.CreateUser(ctx, email, password, fullName, managerTelegram)
+	u, err := s.repo.CreateUser(ctx, email, password, fullName, managerTelegram, s.usersCfg.LowBalanceNotificationsMax)
 	if err != nil {
 		return AuthResponse{}, err
 	}

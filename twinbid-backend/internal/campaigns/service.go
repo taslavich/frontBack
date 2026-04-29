@@ -174,10 +174,17 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 	if err != nil || !user.CampaignStatusNotifications || user.Mail == "" {
 		return
 	}
+	if user.LowBalanceNotificationsCount >= user.LowBalanceNotificationsMax {
+		return
+	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
+	if err := s.repo.CreateSiteNotification(ctx, current.UserID, current.CampaignID, body, "campaign_status"); err != nil {
+		return
+	}
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
 		return
 	}
+	_ = s.repo.IncrementLowBalanceNotificationsCount(ctx, current.UserID)
 }
 
 func (s *Service) Delete(ctx context.Context, userID, campaignID string) error {
