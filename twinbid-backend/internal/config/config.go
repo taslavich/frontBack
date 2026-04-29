@@ -17,7 +17,6 @@ type Config struct {
 	ClickHouse    ClickHouseConfig
 	S3            S3Config
 	Notifications NotificationsConfig
-	Users         UsersConfig
 }
 
 type HTTPConfig struct {
@@ -87,8 +86,4 @@ func Load(ctx context.Context) (*Config, error) {
 
 type NotificationsConfig struct {
 	LowBalanceCheckInterval time.Duration `env:"LOW_BALANCE_CHECK_INTERVAL" env-default:"10m"`
-}
-
-type UsersConfig struct {
-	LowBalanceNotificationsMax int `env:"LOW_BALANCE_NOTIFICATIONS_MAX" env-default:"1"`
 }

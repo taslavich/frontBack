@@ -82,7 +82,7 @@ func (r *Repository) Approve(ctx context.Context, userID, topupID string, promoR
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE users
 		SET balance = balance + $2,
-			low_balance_notifications_count = CASE WHEN balance + $2 > balance_treshold THEN 0 ELSE low_balance_notifications_count END,
+			low_balance_notified = CASE WHEN balance + $2 > balance_treshold THEN false ELSE low_balance_notified END,
 			updated_at=NOW()
 		WHERE id=$1
 	`, userID, t.TotalBalanceIncrease); err != nil {

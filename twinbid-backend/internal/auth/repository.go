@@ -16,14 +16,14 @@ type Repository struct{ db *sql.DB }
 
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
-func (r *Repository) CreateUser(ctx context.Context, email, password, fullName, managerTelegram string, lowBalanceNotificationsMax int) (models.User, error) {
+func (r *Repository) CreateUser(ctx context.Context, email, password, fullName, managerTelegram string) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO users (login, mail, name, manager_telegram, password, verified, low_balance_notifications_max)
-		VALUES ($1, $1, $2, $3, $4, false, $5)
+		INSERT INTO users (login, mail, name, manager_telegram, password, verified)
+		VALUES ($1, $1, $2, $3, $4, false)
 		RETURNING id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notifications_count, low_balance_notifications_max, verified
-	`, email, fullName, managerTelegram, password, lowBalanceNotificationsMax)
+			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
+	`, email, fullName, managerTelegram, password)
 	u, err := scanUser(row)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
@@ -38,7 +38,7 @@ func (r *Repository) GetUserByEmailAndPassword(ctx context.Context, email, passw
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notifications_count, low_balance_notifications_max, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 		FROM users
 		WHERE mail = $1 AND password = $2
 	`, email, password)
@@ -53,7 +53,7 @@ func (r *Repository) GetUserByID(ctx context.Context, userID string) (models.Use
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notifications_count, low_balance_notifications_max, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 		FROM users
 		WHERE id = $1
 	`, userID)
@@ -162,7 +162,7 @@ func scanUser(row rowScanner) (models.User, error) {
 	err := row.Scan(
 		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram, &u.Balance, &u.Timezone,
 		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
-		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotificationsCount, &u.LowBalanceNotificationsMax, &u.Verified,
+		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified, &u.Verified,
 	)
 	if err != nil {
 		return models.User{}, err

@@ -21,8 +21,7 @@ type User struct {
 	LowBalanceNotifications      bool    `json:"low_balance_notifications"`
 	CampaignBalanseNotifications bool    `json:"campaign_balanse_notifications"`
 	BalanceTreshold              float64 `json:"balance_treshold"`
-	LowBalanceNotificationsCount int     `json:"low_balance_notifications_count"`
-	LowBalanceNotificationsMax   int     `json:"low_balance_notifications_max"`
+	LowBalanceNotified           bool    `json:"low_balance_notified"`
 }
 
 type Campaign struct {
@@ -42,6 +41,8 @@ type Campaign struct {
 	EvennessBySlotMode bool               `json:"evenness_by_slot_mode"`
 	GoalTotalDollars   float64            `json:"goal_total_dollars"`
 	CumDoneDollars     float64            `json:"cum_done_dollars"`
+	NoBudget           bool               `json:"no_budget"`
+	NoBudgetNotified   bool               `json:"no_budget_notified"`
 	StartTS            time.Time          `json:"start_ts"`
 	EndTS              time.Time          `json:"end_ts"`
 	ActiveIntervals    []ScheduleInterval `json:"active_intervals"`

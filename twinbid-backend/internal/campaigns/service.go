@@ -181,9 +181,6 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 	if !user.CampaignStatusNotifications || user.Mail == "" {
 		return nil
 	}
-	if user.LowBalanceNotificationsCount >= user.LowBalanceNotificationsMax {
-		return nil
-	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
 	if _, err := s.notifySvc.Create(ctx, current.UserID, notifications.CreateNotificationRequest{
 		CampaignID: &current.CampaignID,
@@ -194,9 +191,6 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 	}
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
 		return fmt.Errorf("send campaign status email: %w", err)
-	}
-	if err := s.repo.IncrementLowBalanceNotificationsCount(ctx, current.UserID); err != nil {
-		return fmt.Errorf("increment low balance notifications count: %w", err)
 	}
 	return nil
 }

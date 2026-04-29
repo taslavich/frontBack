@@ -19,6 +19,7 @@ import (
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
 	"twinbid-backend/internal/topups"
+	"twinbid-backend/internal/mailer"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -48,7 +49,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}*/
 
 	authRepo := auth.NewRepository(pg)
-	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP, cfg.Users)
+	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
 	authHandler := auth.NewHandler(authSvc)
 	go func() {
 		t := time.NewTicker(cfg.JWT.RegistrationCleanupIn)
@@ -86,9 +87,56 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupHandler := topups.NewHandler(topupSvc)
 
 	/*statsHandler := stats.NewHandler(statsSvc)*/
+	go runBudgetAndBalanceTicker(ctx, pg, cfg)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, nil /*statsHandler*/)
 	return &App{Cfg: cfg, Postgres: pg /*Stats: statsSvc,*/, Router: r}, nil
+}
+
+func runBudgetAndBalanceTicker(ctx context.Context, pg *sql.DB, cfg config.Config) {
+	t := time.NewTicker(cfg.Notifications.LowBalanceCheckInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_, _ = pg.ExecContext(ctx, `
+				UPDATE users
+				SET low_balance_notified = CASE
+					WHEN balance < balance_treshold AND low_balance_notified = false THEN true
+					WHEN balance >= balance_treshold THEN false
+					ELSE low_balance_notified
+				END,
+				updated_at = NOW()
+			`)
+			rows, err := pg.QueryContext(ctx, `
+				SELECT c.user_id, c.campaign_id, c.campaign_name, u.mail
+				FROM campaigns c
+				JOIN users u ON u.id = c.user_id
+				WHERE c.goal_total_dollars > 0
+				  AND c.cum_done_dollars >= c.goal_total_dollars
+				  AND c.no_budget_notified = false
+			`)
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var userID, campaignID, campaignName, mailTo string
+				if err := rows.Scan(&userID, &campaignID, &campaignName, &mailTo); err != nil {
+					continue
+				}
+				body := fmt.Sprintf("Ваш бюджет закончился, название кампании %s.", campaignName)
+				_, _ = pg.ExecContext(ctx, `INSERT INTO notifications (user_id, campaign_id, status, text, type) VALUES ($1,$2,'active',$3,'other')`, userID, campaignID, body)
+				if mailTo != "" {
+					_ = mailer.SendEmail(cfg.SMTP, mailTo, "Бюджет кампании закончился", body)
+				}
+				_, _ = pg.ExecContext(ctx, `UPDATE campaigns SET no_budget=true, no_budget_notified=true, updated_at=NOW() WHERE campaign_id=$1`, campaignID)
+			}
+			rows.Close()
+			_, _ = pg.ExecContext(ctx, `UPDATE campaigns SET no_budget=false, no_budget_notified=false, updated_at=NOW() WHERE cum_done_dollars < goal_total_dollars`)
+		}
+	}
 }
 
 func (a *App) Close() error {
