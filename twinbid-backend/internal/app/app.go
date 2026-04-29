@@ -48,8 +48,22 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}*/
 
 	authRepo := auth.NewRepository(pg)
-	authSvc := auth.NewService(authRepo, cfg.JWT)
+	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
 	authHandler := auth.NewHandler(authSvc)
+	go func() {
+		t := time.NewTicker(cfg.JWT.RegistrationCleanupIn)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := authSvc.CleanupExpiredRegistrationTokens(ctx); err != nil {
+					log.Printf("registration token cleanup error: %v", err)
+				}
+			}
+		}
+	}()
 
 	profileSvc := profile.NewService(profile.NewRepository(pg))
 	profileHandler := profile.NewHandler(profileSvc)
@@ -116,6 +130,7 @@ func buildRouter(
 		r.Post("/signup", authHandler.Signup)
 		r.Post("/login", authHandler.Login)
 		r.Post("/refresh", authHandler.Refresh)
+		r.Patch("/verify", authHandler.VerifyEmail)
 		r.Get("/session", authHandler.Session)
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware(authSvc))

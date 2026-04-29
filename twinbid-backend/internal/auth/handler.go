@@ -28,6 +28,9 @@ type refreshRequest struct {
 type changePasswordRequest struct {
 	NewPassword string `json:"new_password"`
 }
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
 
 type sessionResponse struct {
 	UserID   string `json:"user_id"`
@@ -115,4 +118,26 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.NoContent(w)
+}
+
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req verifyEmailRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	status, err := h.svc.VerifyEmail(r.Context(), req.Token)
+	if err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	if status == http.StatusNotFound {
+		httpx.Error(w, httpx.NotFound("verification token not found"))
+		return
+	}
+	if status == http.StatusConflict {
+		httpx.JSON(w, http.StatusConflict, map[string]any{"success": false, "errorMsg": "already verified"})
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"success": true, "errorMsg": ""})
 }

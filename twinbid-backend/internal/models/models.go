@@ -11,6 +11,7 @@ type User struct {
 	Login                        string  `json:"login"`
 	Mail                         string  `json:"mail"`
 	Name                         string  `json:"name"`
+	Verified                     bool    `json:"-"`
 	Telegram                     *string `json:"telegram"`
 	ManagerTelegram              string  `json:"manager_telegram"`
 	Balance                      float64 `json:"balance"`
