@@ -34,7 +34,7 @@ func (s *Service) ListByCampaign(ctx context.Context, userID, campaignID string)
 }
 
 func (s *Service) Create(ctx context.Context, userID, campaignID string, req FormCreativeRequest, file multipart.File, header *multipart.FileHeader, filename string) (models.Creative, error) {
-	format, err := s.campaignSvc.GetFormat(ctx, userID, campaignID)
+	format, err := s.campaignSvc.GetFormat(ctx, campaignID)
 	if err != nil {
 		return models.Creative{}, err
 	}
