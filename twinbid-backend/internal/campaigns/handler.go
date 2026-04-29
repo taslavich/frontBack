@@ -27,7 +27,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	item, err := h.svc.Get(r.Context(), auth.UserID(r), chi.URLParam(r, "id"))
+	item, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		httpx.Error(w, err)
 		return
@@ -55,7 +55,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, err)
 		return
 	}
-	item, err := h.svc.Patch(r.Context(), auth.UserID(r), chi.URLParam(r, "id"), req)
+	item, err := h.svc.Patch(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
 		httpx.Error(w, err)
 		return
