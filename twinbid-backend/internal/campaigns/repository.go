@@ -32,8 +32,8 @@ func (r *Repository) List(ctx context.Context, userID string) ([]models.Campaign
 	return out, rows.Err()
 }
 
-func (r *Repository) Get(ctx context.Context, userID, campaignID string) (models.Campaign, error) {
-	row := r.db.QueryRowContext(ctx, baseCampaignSelect+` WHERE user_id = $1 AND campaign_id = $2`, userID, campaignID)
+func (r *Repository) Get(ctx context.Context, campaignID string) (models.Campaign, error) {
+	row := r.db.QueryRowContext(ctx, baseCampaignSelect+` WHERE campaign_id = $1`, campaignID)
 	c, err := scanCampaign(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.Campaign{}, httpx.NotFound("campaign not found")
@@ -41,9 +41,10 @@ func (r *Repository) Get(ctx context.Context, userID, campaignID string) (models
 	return c, err
 }
 
-func (r *Repository) GetFormat(ctx context.Context, userID, campaignID string) (string, error) {
+
+func (r *Repository) GetFormat(ctx context.Context, campaignID string) (string, error) {
 	var f string
-	err := r.db.QueryRowContext(ctx, `SELECT format_type FROM campaigns WHERE user_id = $1 AND campaign_id = $2`, userID, campaignID).Scan(&f)
+	err := r.db.QueryRowContext(ctx, `SELECT format_type FROM campaigns WHERE campaign_id = $1`, campaignID).Scan(&f)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", httpx.NotFound("campaign not found")
 	}
@@ -79,7 +80,7 @@ func (r *Repository) Update(ctx context.Context, c models.Campaign) (models.Camp
 		RETURNING campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
 			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars, no_budget_notified,
 			start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
-	`, c.UserID, c.CampaignID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical),
+	`, c.CampaignID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical),
 		c.PricingModel, c.BasePriceCPM, c.BasePriceCPC, c.EvennessBySlotMode, c.GoalTotalDollars, c.CumDoneDollars,
 		c.NoBudgetNotified, c.StartTS, c.EndTS, jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType)
 	out, err := scanCampaign(row)
@@ -88,6 +89,7 @@ func (r *Repository) Update(ctx context.Context, c models.Campaign) (models.Camp
 	}
 	return out, err
 }
+
 
 func (r *Repository) Delete(ctx context.Context, userID, campaignID string) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM campaigns WHERE user_id=$1 AND campaign_id=$2`, userID, campaignID)
