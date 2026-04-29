@@ -9,15 +9,17 @@ import (
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/mailer"
 	"twinbid-backend/internal/models"
+	"twinbid-backend/internal/notifications"
 )
 
 type Service struct {
-	repo    *Repository
-	smtpCfg config.SMTPConfig
+	repo         *Repository
+	notifyRepo   *notifications.Repository
+	smtpCfg      config.SMTPConfig
 }
 
-func NewService(repo *Repository, smtpCfg config.SMTPConfig) *Service {
-	return &Service{repo: repo, smtpCfg: smtpCfg}
+func NewService(repo *Repository, notifyRepo *notifications.Repository, smtpCfg config.SMTPConfig) *Service {
+	return &Service{repo: repo, notifyRepo: notifyRepo, smtpCfg: smtpCfg}
 }
 
 var (
@@ -178,7 +180,7 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 		return
 	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
-	if err := s.repo.CreateSiteNotification(ctx, current.UserID, current.CampaignID, body, "campaign_status"); err != nil {
+	if err := s.notifyRepo.CreateCampaignStatus(ctx, current.UserID, current.CampaignID, body); err != nil {
 		return
 	}
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
