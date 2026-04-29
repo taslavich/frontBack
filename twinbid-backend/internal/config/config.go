@@ -10,12 +10,13 @@ import (
 )
 
 type Config struct {
-	HTTP       HTTPConfig
-	Postgres   PostgresConfig
-	JWT        JWTConfig
-	SMTP       SMTPConfig
-	ClickHouse ClickHouseConfig
-	S3         S3Config
+	HTTP          HTTPConfig
+	Postgres      PostgresConfig
+	JWT           JWTConfig
+	SMTP          SMTPConfig
+	ClickHouse    ClickHouseConfig
+	S3            S3Config
+	Notifications NotificationsConfig
 }
 
 type HTTPConfig struct {
@@ -36,12 +37,12 @@ type JWTConfig struct {
 }
 
 type SMTPConfig struct {
-	Host      string `env:"SMTP_HOST" env-default:"mail.hosting.reg.ru"`
-	Port      int    `env:"SMTP_PORT" env-default:"587"`
-	Username  string `env:"SMTP_USERNAME" env-default:""`
-	Password  string `env:"SMTP_PASSWORD" env-default:""`
-	From      string `env:"SMTP_FROM" env-default:"noreply@twinbidex.com"`
-	TLSType   string `env:"SMTP_TLS_TYPE" env-default:"starttls"`
+	Host        string `env:"SMTP_HOST" env-default:"mail.hosting.reg.ru"`
+	Port        int    `env:"SMTP_PORT" env-default:"587"`
+	Username    string `env:"SMTP_USERNAME" env-default:""`
+	Password    string `env:"SMTP_PASSWORD" env-default:""`
+	From        string `env:"SMTP_FROM" env-default:"noreply@twinbidex.com"`
+	TLSType     string `env:"SMTP_TLS_TYPE" env-default:"starttls"`
 	FrontendURL string `env:"FRONTEND_URL" env-default:"https://twinbid.io"`
 	VerifyURL   string `env:"VERIFY_BASE_URL" env-default:""`
 }
@@ -81,4 +82,8 @@ func Load(ctx context.Context) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+type NotificationsConfig struct {
+	LowBalanceCheckInterval time.Duration `env:"LOW_BALANCE_CHECK_INTERVAL" env-default:"10m"`
 }

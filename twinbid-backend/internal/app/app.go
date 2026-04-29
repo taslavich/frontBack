@@ -68,7 +68,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	profileSvc := profile.NewService(profile.NewRepository(pg))
 	profileHandler := profile.NewHandler(profileSvc)
 
-	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg))
+	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), cfg.SMTP)
 	campaignHandler := campaigns.NewHandler(campaignSvc)
 
 	creativeSvc := creatives.NewService(creatives.NewRepository(pg), campaignSvc, s3)

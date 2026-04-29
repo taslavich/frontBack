@@ -175,3 +175,10 @@ func jsonArg(v any) any {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func (r *Repository) GetUserNotificationSettings(ctx context.Context, userID string) (models.User, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT id, mail, campaign_status_notifications FROM users WHERE id=$1`, userID)
+	var out models.User
+	err := row.Scan(&out.ID, &out.Mail, &out.CampaignStatusNotifications)
+	return out, err
+}
