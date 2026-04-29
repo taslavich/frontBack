@@ -105,7 +105,9 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 		current.W = req.W
 	}
 	if req.Status != nil {
-		s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status)
+		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status); err != nil {
+			return models.Campaign{}, err
+		}
 		current.Status = *req.Status
 	}
 	if req.TrafficType != nil {
@@ -168,16 +170,16 @@ func (s *Service) Patch(ctx context.Context, userID, campaignID string, req Patc
 	return s.repo.Update(ctx, current)
 }
 
-func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) {
+func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) error {
 	if !((current.Status == "active" && newStatus == "completed") || (current.Status == "moderation" && newStatus == "active")) {
-		return
+		return nil
 	}
 	user, err := s.repo.GetUserNotificationSettings(ctx, current.UserID)
 	if err != nil || !user.CampaignStatusNotifications || user.Mail == "" {
-		return
+		return err
 	}
 	if user.LowBalanceNotificationsCount >= user.LowBalanceNotificationsMax {
-		return
+		return nil
 	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
 	if _, err := s.notifySvc.Create(ctx, current.UserID, notifications.CreateNotificationRequest{
@@ -185,14 +187,15 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 		Text:       body,
 		Type:       "campaign_status",
 	}); err != nil {
-		return
+		return err
 	}
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
-		return
+		return err
 	}
 	if err := s.repo.IncrementLowBalanceNotificationsCount(ctx, current.UserID); err != nil {
-		return
+		return err
 	}
+	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, userID, campaignID string) error {
