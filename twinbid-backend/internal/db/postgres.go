@@ -43,11 +43,18 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			low_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			campaign_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			balance_treshold DECIMAL(10,2) NOT NULL DEFAULT 100,
+			verified BOOLEAN NOT NULL DEFAULT false,
 			password TEXT NOT NULL,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
 		`CREATE TABLE IF NOT EXISTS refresh_tokens (
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			token TEXT PRIMARY KEY,
+			expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);`,
+		`CREATE TABLE IF NOT EXISTS registrate_tokens (
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			token TEXT PRIMARY KEY,
 			expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -139,6 +146,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON campaigns(user_id);`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false;`,
+		`CREATE INDEX IF NOT EXISTS idx_registrate_tokens_expires_at ON registrate_tokens(expires_at);`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS quality_type TEXT;`,
 		`DO $$
 		BEGIN

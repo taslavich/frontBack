@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/lib/pq"
@@ -17,11 +18,11 @@ func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
 func (r *Repository) CreateUser(ctx context.Context, email, password, fullName, managerTelegram string) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO users (login, mail, name, manager_telegram, password)
-		VALUES ($1, $1, $2, $3, $4)
+		INSERT INTO users (login, mail, name, manager_telegram, password, verified)
+		VALUES ($1, $1, $2, $3, $4, false)
 		RETURNING id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold
+			campaign_balance_notifications, balance_treshold, verified
 	`, email, fullName, managerTelegram, password)
 	u, err := scanUser(row)
 	if err != nil {
@@ -37,7 +38,7 @@ func (r *Repository) GetUserByEmailAndPassword(ctx context.Context, email, passw
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold
+			campaign_balance_notifications, balance_treshold, verified
 		FROM users
 		WHERE mail = $1 AND password = $2
 	`, email, password)
@@ -52,7 +53,7 @@ func (r *Repository) GetUserByID(ctx context.Context, userID string) (models.Use
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold
+			campaign_balance_notifications, balance_treshold, verified
 		FROM users
 		WHERE id = $1
 	`, userID)
@@ -106,6 +107,53 @@ func (r *Repository) UpdatePassword(ctx context.Context, userID, newPassword str
 	return nil
 }
 
+func (r *Repository) SaveRegistrationToken(ctx context.Context, userID, token string, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO registrate_tokens (user_id, token, expires_at, created_at)
+		VALUES ($1, $2, $3, NOW())
+	`, userID, token, expiresAt)
+	return err
+}
+
+func (r *Repository) VerifyByRegistrationToken(ctx context.Context, token string) (int, error) {
+	var userID string
+	err := r.db.QueryRowContext(ctx, `SELECT user_id FROM registrate_tokens WHERE token = $1 AND expires_at > NOW()`, token).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return http.StatusNotFound, nil
+	}
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	var verified bool
+	if err := r.db.QueryRowContext(ctx, `SELECT verified FROM users WHERE id = $1`, userID).Scan(&verified); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	if verified {
+		return http.StatusConflict, nil
+	}
+	_, err = r.db.ExecContext(ctx, `UPDATE users SET verified = true, updated_at = NOW() WHERE id = $1`, userID)
+	return http.StatusOK, err
+}
+
+func (r *Repository) CleanupExpiredRegistrationTokens(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `
+		WITH expired AS (
+			SELECT rt.token, rt.user_id, u.verified
+			FROM registrate_tokens rt
+			JOIN users u ON u.id = rt.user_id
+			WHERE rt.expires_at <= NOW()
+		), deleted_users AS (
+			DELETE FROM users u
+			USING expired e
+			WHERE u.id = e.user_id AND e.verified = false
+		)
+		DELETE FROM registrate_tokens rt
+		USING expired e
+		WHERE rt.token = e.token
+	`)
+	return err
+}
+
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanUser(row rowScanner) (models.User, error) {
@@ -114,7 +162,7 @@ func scanUser(row rowScanner) (models.User, error) {
 	err := row.Scan(
 		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram, &u.Balance, &u.Timezone,
 		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
-		&u.CampaignBalanseNotifications, &u.BalanceTreshold,
+		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.Verified,
 	)
 	if err != nil {
 		return models.User{}, err

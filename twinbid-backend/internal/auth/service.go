@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"net/http"
+	"net/url"
+	"strings"
 
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
@@ -9,12 +12,13 @@ import (
 )
 
 type Service struct {
-	repo *Repository
-	cfg  config.JWTConfig
+	repo    *Repository
+	cfg     config.JWTConfig
+	smtpCfg config.SMTPConfig
 }
 
-func NewService(repo *Repository, cfg config.JWTConfig) *Service {
-	return &Service{repo: repo, cfg: cfg}
+func NewService(repo *Repository, cfg config.JWTConfig, smtpCfg config.SMTPConfig) *Service {
+	return &Service{repo: repo, cfg: cfg, smtpCfg: smtpCfg}
 }
 
 type AuthResponse struct {
@@ -36,6 +40,17 @@ func (s *Service) Signup(ctx context.Context, email, password, fullName, manager
 	if err != nil {
 		return AuthResponse{}, err
 	}
+	verifyToken, verifyExp, err := GenerateJWT(s.cfg.Secret, u.ID, u.Mail, "registration", s.cfg.RegistrationTokenTTL)
+	if err != nil {
+		return AuthResponse{}, err
+	}
+	if err := s.repo.SaveRegistrationToken(ctx, u.ID, verifyToken, verifyExp); err != nil {
+		return AuthResponse{}, err
+	}
+	verifyLink := buildVerificationLink(s.smtpCfg, verifyToken)
+	if err := sendVerificationEmail(s.smtpCfg, email, verifyLink); err != nil {
+		return AuthResponse{}, err
+	}
 	tokens, err := s.issueTokens(ctx, u.ID, u.Mail)
 	if err != nil {
 		return AuthResponse{}, err
@@ -43,10 +58,36 @@ func (s *Service) Signup(ctx context.Context, email, password, fullName, manager
 	return AuthResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, User: u}, nil
 }
 
+func buildVerificationLink(cfg config.SMTPConfig, token string) string {
+	if cfg.VerifyURL != "" {
+		return cfg.VerifyURL + token
+	}
+	base := strings.TrimRight(cfg.FrontendURL, "/")
+	u, err := url.Parse(base + "/verify")
+	if err != nil {
+		return "https://twinbid.io/verify?token=" + token
+	}
+	q := u.Query()
+	q.Set("token", token)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (s *Service) VerifyEmail(ctx context.Context, token string) (int, error) {
+	return s.repo.VerifyByRegistrationToken(ctx, token)
+}
+
+func (s *Service) CleanupExpiredRegistrationTokens(ctx context.Context) error {
+	return s.repo.CleanupExpiredRegistrationTokens(ctx)
+}
+
 func (s *Service) Login(ctx context.Context, email, password string) (AuthResponse, error) {
 	u, err := s.repo.GetUserByEmailAndPassword(ctx, email, password)
 	if err != nil {
 		return AuthResponse{}, err
+	}
+	if !u.Verified {
+		return AuthResponse{}, httpx.HTTPError{Status: http.StatusForbidden, Code: "forbidden", Message: "account is not verified"}
 	}
 	tokens, err := s.issueTokens(ctx, u.ID, u.Mail)
 	if err != nil {
