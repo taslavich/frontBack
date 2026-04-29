@@ -21,6 +21,8 @@ type User struct {
 	LowBalanceNotifications      bool    `json:"low_balance_notifications"`
 	CampaignBalanseNotifications bool    `json:"campaign_balanse_notifications"`
 	BalanceTreshold              float64 `json:"balance_treshold"`
+	LowBalanceNotificationsCount int     `json:"low_balance_notifications_count"`
+	LowBalanceNotificationsMax   int     `json:"low_balance_notifications_max"`
 }
 
 type Campaign struct {

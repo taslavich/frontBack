@@ -48,7 +48,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}*/
 
 	authRepo := auth.NewRepository(pg)
-	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
+	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP, cfg.Users)
 	authHandler := auth.NewHandler(authSvc)
 	go func() {
 		t := time.NewTicker(cfg.JWT.RegistrationCleanupIn)
@@ -68,7 +68,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	profileSvc := profile.NewService(profile.NewRepository(pg))
 	profileHandler := profile.NewHandler(profileSvc)
 
-	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), cfg.SMTP)
+	notificationRepo := notifications.NewRepository(pg)
+	notificationSvc := notifications.NewService(notificationRepo)
+	notificationHandler := notifications.NewHandler(notificationSvc)
+
+	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), notificationSvc, cfg.SMTP)
 	campaignHandler := campaigns.NewHandler(campaignSvc)
 
 	creativeSvc := creatives.NewService(creatives.NewRepository(pg), campaignSvc, s3)
@@ -80,9 +84,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	topupSvc := topups.NewService(topups.NewRepository(pg), promoSvc, promoRepo)
 	topupHandler := topups.NewHandler(topupSvc)
-
-	notificationSvc := notifications.NewService(notifications.NewRepository(pg))
-	notificationHandler := notifications.NewHandler(notificationSvc)
 
 	/*statsHandler := stats.NewHandler(statsSvc)*/
 
