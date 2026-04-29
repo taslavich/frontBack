@@ -175,8 +175,11 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 		return nil
 	}
 	user, err := s.repo.GetUserNotificationSettings(ctx, current.UserID)
-	if err != nil || !user.CampaignStatusNotifications || user.Mail == "" {
-		return err
+	if err != nil {
+		return fmt.Errorf("get user notification settings: %w", err)
+	}
+	if !user.CampaignStatusNotifications || user.Mail == "" {
+		return nil
 	}
 	if user.LowBalanceNotificationsCount >= user.LowBalanceNotificationsMax {
 		return nil
@@ -187,13 +190,13 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 		Text:       body,
 		Type:       "campaign_status",
 	}); err != nil {
-		return err
+		return fmt.Errorf("create campaign status notification: %w", err)
 	}
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
-		return err
+		return fmt.Errorf("send campaign status email: %w", err)
 	}
 	if err := s.repo.IncrementLowBalanceNotificationsCount(ctx, current.UserID); err != nil {
-		return err
+		return fmt.Errorf("increment low balance notifications count: %w", err)
 	}
 	return nil
 }
