@@ -146,23 +146,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON campaigns(user_id);`,
-		`ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false;`,
 		`CREATE INDEX IF NOT EXISTS idx_registrate_tokens_expires_at ON registrate_tokens(expires_at);`,
-		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS quality_type TEXT;`,
-		`DO $$
-		BEGIN
-			IF EXISTS (
-				SELECT 1
-				FROM information_schema.columns
-				WHERE table_name = 'campaigns'
-				  AND column_name = 'vertical'
-				  AND udt_name = '_text'
-			) THEN
-				ALTER TABLE campaigns
-				ALTER COLUMN vertical TYPE JSONB
-				USING COALESCE((SELECT jsonb_object_agg(v, 1) FROM unnest(vertical) AS v), '{}'::jsonb);
-			END IF;
-		END $$;`,
 		`CREATE INDEX IF NOT EXISTS idx_creatives_campaign_id ON creatives(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON user_transactions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);`,
