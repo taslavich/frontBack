@@ -130,6 +130,9 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	}
 	if req.GoalTotalDollars != nil {
 		current.GoalTotalDollars = *req.GoalTotalDollars
+		if current.GoalTotalDollars > current.CumDoneDollars {
+			current.NoBudgetNotified = false
+		}
 	}
 	if req.CumDoneDollars != nil {
 		current.CumDoneDollars = *req.CumDoneDollars
