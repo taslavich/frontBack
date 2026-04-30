@@ -19,7 +19,6 @@ import (
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
 	"twinbid-backend/internal/topups"
-	"twinbid-backend/internal/mailer"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -142,7 +141,7 @@ func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campa
 					log.Printf("no budget ticker scan error: %v", err)
 					continue
 				}
-				if _, err := campaignSvc.Patch(ctx, userID, campaignID, campaigns.PatchCampaignRequest{Status: strPtr("no_budget")}); err != nil {
+				if _, err := campaignSvc.Patch(ctx, campaignID, campaigns.PatchCampaignRequest{Status: strPtr("no_budget")}); err != nil {
 					log.Printf("no budget ticker patch status error: %v", err)
 					continue
 				}
