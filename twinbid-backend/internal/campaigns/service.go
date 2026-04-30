@@ -32,11 +32,11 @@ var (
 func (s *Service) List(ctx context.Context, userID string) ([]models.Campaign, error) {
 	return s.repo.List(ctx, userID)
 }
-func (s *Service) Get(ctx context.Context, userID, campaignID string) (models.Campaign, error) {
-	return s.repo.Get(ctx, userID, campaignID)
+func (s *Service) Get(ctx context.Context, campaignID string) (models.Campaign, error) {
+	return s.repo.Get(ctx, campaignID)
 }
-func (s *Service) GetFormat(ctx context.Context, userID, campaignID string) (string, error) {
-	return s.repo.GetFormat(ctx, userID, campaignID)
+func (s *Service) GetFormat(ctx context.Context, campaignID string) (string, error) {
+	return s.repo.GetFormat(ctx, campaignID)
 }
 
 func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignRequest) (models.Campaign, error) {
@@ -81,8 +81,8 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 	return s.repo.Create(ctx, c)
 }
 
-func (s *Service) Patch(ctx context.Context, userID, campaignID string, req PatchCampaignRequest) (models.Campaign, error) {
-	current, err := s.repo.Get(ctx, userID, campaignID)
+func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaignRequest) (models.Campaign, error) {
+	current, err := s.repo.Get(ctx, campaignID)
 	if err != nil {
 		return models.Campaign{}, err
 	}
