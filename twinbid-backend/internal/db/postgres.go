@@ -43,6 +43,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			low_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			campaign_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			balance_treshold DECIMAL(10,2) NOT NULL DEFAULT 100,
+			low_balance_notified BOOLEAN NOT NULL DEFAULT false,
 			verified BOOLEAN NOT NULL DEFAULT false,
 			password TEXT NOT NULL,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -77,6 +78,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			evenness_by_slot_mode BOOLEAN NOT NULL DEFAULT false,
 			goal_total_dollars DECIMAL(12,2) NOT NULL DEFAULT 0,
 			cum_done_dollars DECIMAL(12,2) NOT NULL DEFAULT 0,
+			no_budget_notified BOOLEAN NOT NULL DEFAULT false,
 			start_ts TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 			end_ts TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 			active_intervals JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -150,6 +152,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_creatives_campaign_id ON creatives(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON user_transactions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified BOOLEAN NOT NULL DEFAULT false;`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS no_budget_notified BOOLEAN NOT NULL DEFAULT false;`,
 		`INSERT INTO promocodes (promocode_text, bonus_percent, usage_limit) VALUES
 			('TWINBID25', 25, NULL),
 			('WELCOME10', 10, NULL)

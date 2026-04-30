@@ -22,7 +22,7 @@ func (r *Repository) CreateUser(ctx context.Context, email, password, fullName, 
 		VALUES ($1, $1, $2, $3, $4, false)
 		RETURNING id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 	`, email, fullName, managerTelegram, password)
 	u, err := scanUser(row)
 	if err != nil {
@@ -38,7 +38,7 @@ func (r *Repository) GetUserByEmailAndPassword(ctx context.Context, email, passw
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 		FROM users
 		WHERE mail = $1 AND password = $2
 	`, email, password)
@@ -53,7 +53,7 @@ func (r *Repository) GetUserByID(ctx context.Context, userID string) (models.Use
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 		FROM users
 		WHERE id = $1
 	`, userID)
@@ -162,7 +162,7 @@ func scanUser(row rowScanner) (models.User, error) {
 	err := row.Scan(
 		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram, &u.Balance, &u.Timezone,
 		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
-		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.Verified,
+		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified, &u.Verified,
 	)
 	if err != nil {
 		return models.User{}, err

@@ -36,6 +36,9 @@ func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRe
 	}
 	if patch.Balance != nil {
 		u.Balance = *patch.Balance
+		if u.Balance > u.BalanceTreshold {
+			u.LowBalanceNotified = false
+		}
 	}
 	if patch.Timezone != nil {
 		u.Timezone = *patch.Timezone
@@ -54,6 +57,9 @@ func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRe
 	}
 	if patch.BalanceTreshold != nil {
 		u.BalanceTreshold = *patch.BalanceTreshold
+		if u.Balance > u.BalanceTreshold {
+			u.LowBalanceNotified = false
+		}
 	}
 	return s.repo.Update(ctx, userID, u)
 }

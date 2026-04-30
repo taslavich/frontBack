@@ -55,15 +55,15 @@ func (r *Repository) Create(ctx context.Context, c models.Campaign) (models.Camp
 		INSERT INTO campaigns (
 			user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical, pricing_model,
 			base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars,
-			start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
+			no_budget_notified, start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
 		)
 		RETURNING campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
-			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars,
+			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars, no_budget_notified,
 			start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
 	`, c.UserID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical), c.PricingModel,
-		c.BasePriceCPM, c.BasePriceCPC, c.EvennessBySlotMode, c.GoalTotalDollars, c.CumDoneDollars, c.StartTS, c.EndTS,
+		c.BasePriceCPM, c.BasePriceCPC, c.EvennessBySlotMode, c.GoalTotalDollars, c.CumDoneDollars, c.NoBudgetNotified, c.StartTS, c.EndTS,
 		jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType)
 	return scanCampaign(row)
 }
@@ -73,15 +73,15 @@ func (r *Repository) Update(ctx context.Context, c models.Campaign) (models.Camp
 		UPDATE campaigns SET
 			campaign_name=$3, format_type=$4, brand_name=$5, h=$6, w=$7, status=$8, traffic_type=$9, vertical=$10,
 			pricing_model=$11, base_price_cpm=$12, base_price_cpc=$13, evenness_by_slot_mode=$14,
-			goal_total_dollars=$15, cum_done_dollars=$16, start_ts=$17, end_ts=$18, active_intervals=$19,
-			country=$20, language=$21, device_type=$22, os=$23, browser=$24, site_id=$25, ip=$26, quality_type=$27, updated_at=NOW()
+			goal_total_dollars=$15, cum_done_dollars=$16, no_budget_notified=$17, start_ts=$18, end_ts=$19, active_intervals=$20,
+			country=$21, language=$22, device_type=$23, os=$24, browser=$25, site_id=$26, ip=$27, quality_type=$28, updated_at=NOW()
 		WHERE user_id=$1 AND campaign_id=$2
 		RETURNING campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
-			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars,
+			pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars, no_budget_notified,
 			start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type
 	`, c.UserID, c.CampaignID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical),
 		c.PricingModel, c.BasePriceCPM, c.BasePriceCPC, c.EvennessBySlotMode, c.GoalTotalDollars, c.CumDoneDollars,
-		c.StartTS, c.EndTS, jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType)
+		c.NoBudgetNotified, c.StartTS, c.EndTS, jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType)
 	out, err := scanCampaign(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.Campaign{}, httpx.NotFound("campaign not found")
@@ -105,7 +105,7 @@ func (r *Repository) Delete(ctx context.Context, userID, campaignID string) erro
 }
 
 const baseCampaignSelect = `SELECT campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
-	pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars,
+	pricing_model, base_price_cpm, base_price_cpc, evenness_by_slot_mode, goal_total_dollars, cum_done_dollars, no_budget_notified,
 	start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type FROM campaigns`
 
 type scanner interface{ Scan(dest ...any) error }
@@ -116,7 +116,7 @@ func scanCampaign(s scanner) (models.Campaign, error) {
 	var h, w sql.NullInt64
 	var verticalRaw, activeRaw, countryRaw, languageRaw, deviceRaw, osRaw, browserRaw, siteRaw, ipRaw []byte
 	err := s.Scan(&c.CampaignID, &c.UserID, &c.CampaignName, &c.FormatType, &brand, &h, &w, &c.Status, &c.TrafficType, &verticalRaw,
-		&c.PricingModel, &c.BasePriceCPM, &c.BasePriceCPC, &c.EvennessBySlotMode, &c.GoalTotalDollars, &c.CumDoneDollars,
+		&c.PricingModel, &c.BasePriceCPM, &c.BasePriceCPC, &c.EvennessBySlotMode, &c.GoalTotalDollars, &c.CumDoneDollars, &c.NoBudgetNotified,
 		&c.StartTS, &c.EndTS, &activeRaw, &countryRaw, &languageRaw, &deviceRaw, &osRaw, &browserRaw, &siteRaw, &ipRaw, &c.QualityType)
 	if err != nil {
 		return models.Campaign{}, err
