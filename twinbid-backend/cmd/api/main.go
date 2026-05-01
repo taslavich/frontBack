@@ -69,12 +69,6 @@ func runLowBalanceNotifications(ctx context.Context, db *sql.DB, notifySvc *noti
 				continue
 			}
 			for _, user := range users {
-				if _, err := notifySvc.Create(ctx, user.ID, notifications.CreateNotificationRequest{
-					Text: "Low balance",
-					Type: "low_balance",
-				}); err != nil {
-					log.Printf("low balance notification create error for user %s: %v", user.ID, err)
-				}
 				body := fmt.Sprintf("Ваш баланс %.2f меньше чем %.2f.", user.Balance, user.BalanceTreshold)
 				if err := mailer.SendEmail(smtpCfg, user.Mail, "Низкий баланс", body); err != nil {
 					log.Printf("low balance email error for user %s: %v", user.ID, err)
