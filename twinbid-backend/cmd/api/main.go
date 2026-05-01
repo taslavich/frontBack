@@ -15,6 +15,7 @@ import (
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/mailer"
 	"twinbid-backend/internal/models"
+	"twinbid-backend/internal/notifications"
 )
 
 func main() {
@@ -32,7 +33,8 @@ func main() {
 	}
 	defer application.Close()
 
-	go runLowBalanceNotifications(ctx, application.Postgres, cfg.Notifications.LowBalanceCheckInterval, cfg.SMTP)
+	notifySvc := notifications.NewService(notifications.NewRepository(application.Postgres))
+	go runLowBalanceNotifications(ctx, application.Postgres, notifySvc, cfg.Notifications.LowBalanceCheckInterval, cfg.SMTP)
 
 	srv := application.Server()
 	go func() {
@@ -50,7 +52,7 @@ func main() {
 	}
 }
 
-func runLowBalanceNotifications(ctx context.Context, db *sql.DB, interval time.Duration, smtpCfg config.SMTPConfig) {
+func runLowBalanceNotifications(ctx context.Context, db *sql.DB, notifySvc *notifications.Service, interval time.Duration, smtpCfg config.SMTPConfig) {
 	if interval <= 0 {
 		return
 	}
@@ -67,9 +69,19 @@ func runLowBalanceNotifications(ctx context.Context, db *sql.DB, interval time.D
 				continue
 			}
 			for _, user := range users {
+				if _, err := notifySvc.Create(ctx, user.ID, notifications.CreateNotificationRequest{
+					Text: "Low balance",
+					Type: "low_balance",
+				}); err != nil {
+					log.Printf("low balance notification create error for user %s: %v", user.ID, err)
+				}
 				body := fmt.Sprintf("Ваш баланс %.2f меньше чем %.2f.", user.Balance, user.BalanceTreshold)
 				if err := mailer.SendEmail(smtpCfg, user.Mail, "Низкий баланс", body); err != nil {
 					log.Printf("low balance email error for user %s: %v", user.ID, err)
+					continue
+				}
+				if err := markLowBalanceNotified(ctx, db, user.ID); err != nil {
+					log.Printf("low balance notified update error for user %s: %v", user.ID, err)
 				}
 			}
 		}
@@ -81,6 +93,8 @@ func getLowBalanceUsers(ctx context.Context, db *sql.DB) ([]models.User, error) 
 		SELECT id, mail, balance, balance_treshold
 		FROM users
 		WHERE low_balance_notifications = true
+		  AND low_balance_notified = false
+		  AND balance_treshold <> 0
 		  AND balance < balance_treshold
 		  AND mail <> ''
 	`)
@@ -97,4 +111,13 @@ func getLowBalanceUsers(ctx context.Context, db *sql.DB) ([]models.User, error) 
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func markLowBalanceNotified(ctx context.Context, db *sql.DB, userID string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE users
+		SET low_balance_notified = true
+		WHERE id = $1
+	`, userID)
+	return err
 }
