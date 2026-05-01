@@ -94,17 +94,24 @@ func (h *Handler) Session(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, nil)
 		return
 	}
+
 	userID, err := h.svc.VerifyAccessToken(token)
 	if err != nil {
-		httpx.JSON(w, http.StatusOK, nil)
+		httpx.Error(w, httpx.Unauthorized("invalid access token"))
 		return
 	}
+
 	u, err := h.svc.Session(r.Context(), userID)
 	if err != nil {
-		httpx.JSON(w, http.StatusOK, nil)
+		httpx.Error(w, httpx.Unauthorized("invalid session"))
 		return
 	}
-	httpx.JSON(w, http.StatusOK, sessionResponse{UserID: u.ID, Email: u.Mail, FullName: u.Name})
+
+	httpx.JSON(w, http.StatusOK, sessionResponse{
+		UserID:   u.ID,
+		Email:    u.Mail,
+		FullName: u.Name,
+	})
 }
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
