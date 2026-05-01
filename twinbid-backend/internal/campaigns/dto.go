@@ -63,6 +63,7 @@ type PatchCampaignRequest struct {
 	SiteID             *models.TargetingMap       `json:"site_id"`
 	IP                 *models.TargetingMap       `json:"ip"`
 	QualityType        *string                    `json:"quality_type"`
+	NoBudgetNotified   *bool                      `json:"no_budget_notified"`
 }
 
 func (p *PatchCampaignRequest) UnmarshalJSON(data []byte) error {

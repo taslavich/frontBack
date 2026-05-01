@@ -13,9 +13,9 @@ import (
 )
 
 type Service struct {
-	repo         *Repository
-	notifySvc    *notifications.Service
-	smtpCfg      config.SMTPConfig
+	repo      *Repository
+	notifySvc *notifications.Service
+	smtpCfg   config.SMTPConfig
 }
 
 func NewService(repo *Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig) *Service {
@@ -166,6 +166,9 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	}
 	if req.IP != nil {
 		current.IP = *req.IP
+	}
+	if req.NoBudgetNotified != nil {
+		current.NoBudgetNotified = *req.NoBudgetNotified
 	}
 	if err := validateCampaign(current); err != nil {
 		return models.Campaign{}, err

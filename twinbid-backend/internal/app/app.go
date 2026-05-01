@@ -86,34 +86,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupHandler := topups.NewHandler(topupSvc)
 
 	/*statsHandler := stats.NewHandler(statsSvc)*/
-	go runLowBalanceTicker(ctx, pg, cfg.Notifications.LowBalanceCheckInterval)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, nil /*statsHandler*/)
 	return &App{Cfg: cfg, Postgres: pg /*Stats: statsSvc,*/, Router: r}, nil
-}
-
-func runLowBalanceTicker(ctx context.Context, pg *sql.DB, interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if _, err := pg.ExecContext(ctx, `
-			UPDATE users
-			SET low_balance_notified = CASE
-				WHEN balance < balance_treshold AND low_balance_notified = false THEN true
-				WHEN balance >= balance_treshold THEN false
-				ELSE low_balance_notified
-			END,
-			updated_at = NOW()
-		`); err != nil {
-				log.Printf("low balance ticker update error: %v", err)
-			}
-		}
-	}
 }
 
 func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campaignSvc *campaigns.Service) {
@@ -141,13 +117,11 @@ func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campa
 					log.Printf("no budget ticker scan error: %v", err)
 					continue
 				}
-				if _, err := campaignSvc.Patch(ctx, campaignID, campaigns.PatchCampaignRequest{Status: strPtr("no_budget")}); err != nil {
+				if _, err := campaignSvc.Patch(ctx, campaignID, campaigns.PatchCampaignRequest{Status: strPtr("no_budget"), NoBudgetNotified: booleanPtr(true)}); err != nil {
 					log.Printf("no budget ticker patch status error: %v", err)
 					continue
 				}
-				if _, err := pg.ExecContext(ctx, `UPDATE campaigns SET no_budget_notified=true, updated_at=NOW() WHERE campaign_id=$1`, campaignID); err != nil {
-					log.Printf("no budget ticker set notified error: %v", err)
-				}
+
 			}
 			if err := rows.Err(); err != nil {
 				log.Printf("no budget ticker rows iteration error: %v", err)
@@ -256,3 +230,4 @@ func cors(next http.Handler) http.Handler {
 }
 
 func strPtr(v string) *string { return &v }
+func booleanPtr(v bool) *bool { return &v }

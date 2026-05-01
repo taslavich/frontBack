@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/google/uuid"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
+
+	"github.com/google/uuid"
 )
 
 type Repository struct{ db *sql.DB }
@@ -82,7 +83,6 @@ func (r *Repository) Approve(ctx context.Context, userID, topupID string, promoR
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE users
 		SET balance = balance + $2,
-			low_balance_notified = CASE WHEN balance + $2 > balance_treshold THEN false ELSE low_balance_notified END,
 			updated_at=NOW()
 		WHERE id=$1
 	`, userID, t.TotalBalanceIncrease); err != nil {
