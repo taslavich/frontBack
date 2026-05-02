@@ -24,7 +24,7 @@ func (r *Repository) Get(ctx context.Context, userID string) (models.User, error
 
 func (r *Repository) Update(ctx context.Context, userID string, u models.User) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		UPDATE users SET login=$2, mail=$3, name=$4, telegram=$5, manager_telegram=$6, balance=$7, timezone=$8,
+		UPDATE users SET login=$2, mail=$3, name=$4, telegram=$5, manager_telegram=$6, balance=balance+$7, timezone=$8,
 			email_notifications=$9, campaign_status_notifications=$10, low_balance_notifications=$11,
 			campaign_balance_notifications=$12, balance_treshold=$13, low_balance_notified=$14, updated_at=NOW()
 		WHERE id=$1
