@@ -122,3 +122,5 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 }
 
 func NewTransactionID() string { return uuid.NewString() }
+
+
