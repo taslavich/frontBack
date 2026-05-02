@@ -18,6 +18,11 @@ type PatchProfileRequest struct {
 	BalanceTreshold              *float64 `json:"balance_treshold"`
 }
 
+type PatchProfileAdminRequest struct {
+	UserID string `json:"user_id"`
+	PatchProfileRequest
+}
+
 func (p *PatchProfileRequest) UnmarshalJSON(data []byte) error {
 	type alias PatchProfileRequest
 	var aux alias

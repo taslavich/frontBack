@@ -184,6 +184,7 @@ func buildRouter(
 		r.Use(auth.Middleware(authSvc))
 		r.Get("/api/profile", profileHandler.Get)
 		r.Patch("/api/profile", profileHandler.Patch)
+		r.Patch("/api/profile_admin", profileHandler.PatchAdmin)
 
 		r.Get("/api/campaigns", campaignHandler.List)
 		r.Post("/api/campaigns", campaignHandler.Create)
