@@ -11,6 +11,7 @@ import (
 	"twinbid-backend/internal/mailer"
 	"twinbid-backend/internal/models"
 	"twinbid-backend/internal/notifications"
+	"twinbid-backend/internal/profile"
 )
 
 type Service struct {
@@ -200,7 +201,7 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, curren
 		return fmt.Errorf("create campaign status notification: %w", err)
 	}
 
-	user, err := s.repo.GetUserNotificationSettings(ctx, current.UserID)
+	user, err := profile.Repository.Get(ctx, current.UserID)
 	if err != nil {
 		return fmt.Errorf("get user notification settings: %w", err)
 	}
