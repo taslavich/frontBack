@@ -72,7 +72,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	notificationSvc := notifications.NewService(notificationRepo)
 	notificationHandler := notifications.NewHandler(notificationSvc)
 
-	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), notificationSvc, cfg.SMTP)
+	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), notificationSvc, cfg.SMTP, cfg.Bot)
 	campaignHandler := campaigns.NewHandler(campaignSvc)
 
 	creativeSvc := creatives.NewService(creatives.NewRepository(pg), campaignSvc, s3)
@@ -82,7 +82,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	promoSvc := promocodes.NewService(promoRepo)
 	promoHandler := promocodes.NewHandler(promoSvc)
 
-	topupSvc := topups.NewService(topups.NewRepository(pg), promoSvc, promoRepo)
+	topupSvc := topups.NewService(topups.NewRepository(pg), promoSvc, promoRepo, cfg.Bot)
 	topupHandler := topups.NewHandler(topupSvc)
 
 	/*statsHandler := stats.NewHandler(statsSvc)*/

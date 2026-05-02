@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"twinbid-backend/internal/bot"
+	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
 	"twinbid-backend/internal/promocodes"
@@ -14,10 +15,11 @@ type Service struct {
 	repo      *Repository
 	promoSvc  *promocodes.Service
 	promoRepo *promocodes.Repository
+	botCfg    config.BotConfig
 }
 
-func NewService(repo *Repository, promoSvc *promocodes.Service, promoRepo *promocodes.Repository) *Service {
-	return &Service{repo: repo, promoSvc: promoSvc, promoRepo: promoRepo}
+func NewService(repo *Repository, promoSvc *promocodes.Service, promoRepo *promocodes.Repository, botCfg config.BotConfig) *Service {
+	return &Service{repo: repo, promoSvc: promoSvc, promoRepo: promoRepo, botCfg: botCfg}
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]models.UserTransaction, error) {
@@ -68,14 +70,15 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 
 	ut, err := s.repo.Create(ctx, t)
 	if err != nil {
-		fmt.Printf("cannot create transaction: %w", err)
+		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
 	}
 
-	bot := bot.NewBotClient("http://127.0.0.1:8090", "change_me_secret")
+	botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
+	if err := botClient.SendPaymentModeration(ctx, bot.PaymentModerationRequest{}); err != nil {
+		return models.UserTransaction{}, fmt.Errorf("send payment moderation: %w", err)
+	}
 
-	err = bot.SendPaymentModeration(ctx, bot.PaymentModerationRequest{})
-
-	return s.repo.Create(ctx, t)
+	return ut, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, userID, id string) (models.UserTransaction, error) {
