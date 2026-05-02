@@ -9,3 +9,7 @@ type CreateTopupRequest struct {
 	TransactionHash *string `json:"transaction_hash"`
 	Status          string  `json:"status"`
 }
+
+type AdminTopupActionRequest struct {
+	UserID string `json:"user_id"`
+}

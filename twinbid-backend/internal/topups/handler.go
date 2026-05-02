@@ -57,3 +57,41 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, item)
 }
+
+func (h *Handler) CancelAdmin(w http.ResponseWriter, r *http.Request) {
+	var req AdminTopupActionRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	if req.UserID == "" {
+		httpx.Error(w, httpx.BadRequest("user_id is required"))
+		return
+	}
+
+	item, err := h.svc.Cancel(r.Context(), req.UserID, chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) ApproveAdmin(w http.ResponseWriter, r *http.Request) {
+	var req AdminTopupActionRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	if req.UserID == "" {
+		httpx.Error(w, httpx.BadRequest("user_id is required"))
+		return
+	}
+
+	item, err := h.svc.Approve(r.Context(), req.UserID, chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, item)
+}
