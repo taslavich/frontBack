@@ -91,6 +91,7 @@ func Load(ctx context.Context) (*Config, error) {
 }
 
 type NotificationsConfig struct {
-	LowBalanceCheckInterval time.Duration `env:"LOW_BALANCE_CHECK_INTERVAL" env-default:"10m"`
-	NoBudgetCheckInterval   time.Duration `env:"NO_BUDGET_CHECK_INTERVAL" env-default:"10m"`
+	LowBalanceCheckInterval        time.Duration `env:"LOW_BALANCE_CHECK_INTERVAL" env-default:"10m"`
+	NoBudgetCheckInterval          time.Duration `env:"NO_BUDGET_CHECK_INTERVAL" env-default:"10m"`
+	CampaignCompletedCheckInterval time.Duration `env:"CAMPAIGN_COMPLETED_CHECK_INTERVAL" env-default:"10m"`
 }
