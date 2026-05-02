@@ -78,40 +78,6 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 	if err != nil {
 		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
 	}
-	user, err := s.profile.Get(ctx, userID)
-	if err != nil {
-		return models.UserTransaction{}, fmt.Errorf("get profile: %w", err)
-	}
-	userTelegram := ""
-	if user.Telegram != nil {
-		userTelegram = *user.Telegram
-	}
-	promocodeIDStr := ""
-	if ut.PromocodeID != nil {
-		promocodeIDStr = *ut.PromocodeID
-	}
-	transactionHash := ""
-	if ut.TransactionHash != nil {
-		transactionHash = *ut.TransactionHash
-	}
-
-	botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
-	if err := botClient.SendPaymentModeration(ctx, bot.PaymentModerationRequest{
-		ID:                   ut.ID,
-		TransactionID:        ut.TransactionID,
-		UserID:               ut.UserID,
-		UserEmail:            user.Mail,
-		UserTelegram:         userTelegram,
-		PaymentMethod:        ut.PaymentMethod,
-		DepositAmount:        ut.DepositAmount,
-		BonusAmount:          ut.BonusAmount,
-		TotalBalanceIncrease: ut.TotalBalanceIncrease,
-		Currency:             ut.Currency,
-		PromocodeID:          promocodeIDStr,
-		TransactionHash:      transactionHash,
-	}); err != nil {
-		return models.UserTransaction{}, fmt.Errorf("send payment moderation: %w", err)
-	}
 
 	return ut, nil
 }
@@ -162,7 +128,49 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 	if req.Status != nil && !validTopupStatus[*req.Status] {
 		return models.UserTransaction{}, httpx.BadRequest("invalid status")
 	}
-	return s.repo.Update(ctx, current)
+
+	//////////////////////////
+	ut, err := s.repo.Update(ctx, current)
+	if err != nil {
+		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
+	}
+	////////////////
+
+	user, err := s.profile.Get(ctx, userID)
+	if err != nil {
+		return models.UserTransaction{}, fmt.Errorf("get profile: %w", err)
+	}
+	userTelegram := ""
+	if user.Telegram != nil {
+		userTelegram = *user.Telegram
+	}
+	promocodeIDStr := ""
+	if ut.PromocodeID != nil {
+		promocodeIDStr = *ut.PromocodeID
+	}
+	transactionHash := ""
+	if ut.TransactionHash != nil {
+		transactionHash = *ut.TransactionHash
+	}
+
+	botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
+	if err := botClient.SendPaymentModeration(ctx, bot.PaymentModerationRequest{
+		ID:                   ut.ID,
+		TransactionID:        ut.TransactionID,
+		UserID:               ut.UserID,
+		UserEmail:            user.Mail,
+		UserTelegram:         userTelegram,
+		PaymentMethod:        ut.PaymentMethod,
+		DepositAmount:        ut.DepositAmount,
+		BonusAmount:          ut.BonusAmount,
+		TotalBalanceIncrease: ut.TotalBalanceIncrease,
+		Currency:             ut.Currency,
+		PromocodeID:          promocodeIDStr,
+		TransactionHash:      transactionHash,
+	}); err != nil {
+		return models.UserTransaction{}, fmt.Errorf("send payment moderation: %w", err)
+	}
+	return ut, nil
 }
 
 // Approve is backend-side business action: after approval it increases user balance and increments promocode usage_count.
