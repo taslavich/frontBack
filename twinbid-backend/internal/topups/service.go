@@ -28,6 +28,10 @@ func (s *Service) List(ctx context.Context, userID string) ([]models.UserTransac
 	return s.repo.List(ctx, userID)
 }
 
+func (s *Service) Get(ctx context.Context, userID, id string) (models.UserTransaction, error) {
+	return s.repo.Get(ctx, userID, id)
+}
+
 func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequest) (models.UserTransaction, error) {
 	if req.PaymentMethod == "" {
 		return models.UserTransaction{}, httpx.BadRequest("payment_method is required")
@@ -114,6 +118,51 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 
 func (s *Service) Cancel(ctx context.Context, userID, id string) (models.UserTransaction, error) {
 	return s.repo.Cancel(ctx, userID, id)
+}
+
+func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRequest) (models.UserTransaction, error) {
+	current, err := s.Get(ctx, userID, id)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+
+	if req.TransactionID != nil {
+		current.TransactionID = *req.TransactionID
+	}
+	if req.PaymentMethod != nil {
+		current.PaymentMethod = *req.PaymentMethod
+	}
+	if req.BonusAmount != nil {
+		current.BonusAmount = *req.BonusAmount
+	}
+	if req.PromocodeIDSet {
+		current.PromocodeID = req.PromocodeID
+	}
+	if req.TransactionHashSet {
+		current.TransactionHash = req.TransactionHash
+	}
+	if req.DepositAmount != nil {
+		current.DepositAmount = *req.DepositAmount
+	}
+	if req.Status != nil {
+		current.Status = models.TopupStatus(*req.Status)
+	}
+	if req.Currency != nil {
+		current.Currency = *req.Currency
+	}
+	if req.TotalBalanceIncrease != nil {
+		current.TotalBalanceIncrease = *req.TotalBalanceIncrease
+	} else if req.DepositAmount != nil || req.BonusAmount != nil {
+		current.TotalBalanceIncrease = current.DepositAmount * (1 + current.BonusAmount/100)
+	}
+
+	if req.DepositAmount != nil && *req.DepositAmount <= 0 {
+		return models.UserTransaction{}, httpx.BadRequest("deposit_amount must be positive")
+	}
+	if req.Status != nil && !validTopupStatus[*req.Status] {
+		return models.UserTransaction{}, httpx.BadRequest("invalid status")
+	}
+	return s.repo.Update(ctx, current)
 }
 
 // Approve is backend-side business action: after approval it increases user balance and increments promocode usage_count.

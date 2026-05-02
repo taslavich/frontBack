@@ -32,6 +32,15 @@ func (r *Repository) List(ctx context.Context, userID string) ([]models.UserTran
 	return out, rows.Err()
 }
 
+func (r *Repository) Get(ctx context.Context, userID, id string) (models.UserTransaction, error) {
+	row := r.db.QueryRowContext(ctx, selectTx+` WHERE id=$2 AND user_id=$1`, userID, id)
+	item, err := scanTx(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.UserTransaction{}, httpx.NotFound("topup not found")
+	}
+	return item, err
+}
+
 func (r *Repository) Create(ctx context.Context, t models.UserTransaction) (models.UserTransaction, error) {
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO user_transactions (user_id, transaction_id, payment_method, bonus_amount, promocode_id, transaction_hash, deposit_amount, total_balance_increase, status, currency)
@@ -52,6 +61,22 @@ func (r *Repository) Cancel(ctx context.Context, userID, id string) (models.User
 		return models.UserTransaction{}, httpx.NotFound("topup not found or cannot be cancelled")
 	}
 	return t, err
+}
+
+func (r *Repository) Update(ctx context.Context, t models.UserTransaction) (models.UserTransaction, error) {
+	row := r.db.QueryRowContext(ctx, `
+		UPDATE user_transactions
+		SET transaction_id=$3, payment_method=$4, bonus_amount=$5, promocode_id=$6, transaction_hash=$7,
+			deposit_amount=$8, total_balance_increase=$9, status=$10, currency=$11, updated_at=NOW()
+		WHERE id=$2 AND user_id=$1
+		RETURNING id, user_id, transaction_time, transaction_id, payment_method, bonus_amount, promocode_id, transaction_hash, deposit_amount, total_balance_increase, status, currency, created_at, updated_at
+	`, t.UserID, t.ID, t.TransactionID, t.PaymentMethod, t.BonusAmount, t.PromocodeID, t.TransactionHash,
+		t.DepositAmount, t.TotalBalanceIncrease, t.Status, t.Currency)
+	out, err := scanTx(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.UserTransaction{}, httpx.NotFound("topup not found")
+	}
+	return out, err
 }
 
 func (r *Repository) UserUsedPromocode(ctx context.Context, userID, promocodeID string) (bool, error) {
@@ -122,5 +147,3 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 }
 
 func NewTransactionID() string { return uuid.NewString() }
-
-
