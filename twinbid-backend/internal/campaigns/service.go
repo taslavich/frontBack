@@ -16,7 +16,7 @@ import (
 )
 
 type Service struct {
-	repo *Repository
+	repo         *Repository
 	creativeRepo interface {
 		ListByCampaign(ctx context.Context, userID, campaignID string) ([]models.Creative, error)
 	}
@@ -92,65 +92,6 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 	campaign, err := s.repo.Create(ctx, c)
 	if err != nil {
 		return models.Campaign{}, fmt.Errorf("create campaign: %w", err)
-	}
-	user, err := s.profileRepo.Get(ctx, campaign.UserID)
-	if err != nil {
-		return models.Campaign{}, fmt.Errorf("get profile: %w", err)
-	}
-	userTelegram := ""
-	if user.Telegram != nil {
-		userTelegram = *user.Telegram
-	}
-	creativeItems, err := s.creativeRepo.ListByCampaign(ctx, campaign.UserID, campaign.CampaignID)
-	if err != nil {
-		return models.Campaign{}, fmt.Errorf("list creatives: %w", err)
-	}
-	creativesPayload := make([]bot.CreativePayload, 0, len(creativeItems))
-	for _, cr := range creativeItems {
-		macros := ""
-		if len(cr.TrackersMacros) > 0 {
-			b, _ := json.Marshal(cr.TrackersMacros)
-			macros = string(b)
-		}
-		title := ""
-		if cr.Title != nil {
-			title = *cr.Title
-		}
-		description := ""
-		if cr.Description != nil {
-			description = *cr.Description
-		}
-		creativesPayload = append(creativesPayload, bot.CreativePayload{
-			CreativeName: cr.CreativeName,
-			URL:          cr.Link,
-			Macros:       macros,
-			Title:        title,
-			Description:  description,
-		})
-	}
-	bannerSize := ""
-	if campaign.W != nil && campaign.H != nil {
-		bannerSize = fmt.Sprintf("%dx%d", *campaign.W, *campaign.H)
-	}
-	brandName := ""
-	if campaign.BrandName != nil {
-		brandName = *campaign.BrandName
-	}
-
-	botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
-	if err := botClient.SendCampaignModeration(ctx, bot.CampaignModerationRequest{
-		CampaignID:   campaign.CampaignID,
-		FormatType:   campaign.FormatType,
-		TrafficType:  campaign.TrafficType,
-		CampaignName: campaign.CampaignName,
-		BannerSize:   bannerSize,
-		BrandName:    brandName,
-		UserID:       campaign.UserID,
-		UserEmail:    user.Mail,
-		UserTelegram: userTelegram,
-		Creatives:    creativesPayload,
-	}); err != nil {
-		return models.Campaign{}, fmt.Errorf("send campaign moderation: %w", err)
 	}
 
 	return campaign, nil
@@ -248,7 +189,77 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	if err := validateCampaign(current); err != nil {
 		return models.Campaign{}, err
 	}
-	return s.repo.Update(ctx, current)
+
+	////////////////////////////////////////////
+	campaign, err := s.repo.Update(ctx, current)
+	if err != nil {
+		return models.Campaign{}, fmt.Errorf("cannot patch campaign: %w", err)
+	}
+
+	///////
+	if current.Status == "moderation" {
+		user, err := s.profileRepo.Get(ctx, campaign.UserID)
+		if err != nil {
+			return models.Campaign{}, fmt.Errorf("get profile: %w", err)
+		}
+		userTelegram := ""
+		if user.Telegram != nil {
+			userTelegram = *user.Telegram
+		}
+		creativeItems, err := s.creativeRepo.ListByCampaign(ctx, campaign.UserID, campaign.CampaignID)
+		if err != nil {
+			return models.Campaign{}, fmt.Errorf("list creatives: %w", err)
+		}
+		creativesPayload := make([]bot.CreativePayload, 0, len(creativeItems))
+		for _, cr := range creativeItems {
+			macros := ""
+			if len(cr.TrackersMacros) > 0 {
+				b, _ := json.Marshal(cr.TrackersMacros)
+				macros = string(b)
+			}
+			title := ""
+			if cr.Title != nil {
+				title = *cr.Title
+			}
+			description := ""
+			if cr.Description != nil {
+				description = *cr.Description
+			}
+			creativesPayload = append(creativesPayload, bot.CreativePayload{
+				CreativeName: cr.CreativeName,
+				URL:          cr.Link,
+				Macros:       macros,
+				Title:        title,
+				Description:  description,
+			})
+		}
+		bannerSize := ""
+		if campaign.W != nil && campaign.H != nil {
+			bannerSize = fmt.Sprintf("%dx%d", *campaign.W, *campaign.H)
+		}
+		brandName := ""
+		if campaign.BrandName != nil {
+			brandName = *campaign.BrandName
+		}
+
+		botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
+		if err := botClient.SendCampaignModeration(ctx, bot.CampaignModerationRequest{
+			CampaignID:   campaign.CampaignID,
+			FormatType:   campaign.FormatType,
+			TrafficType:  campaign.TrafficType,
+			CampaignName: campaign.CampaignName,
+			BannerSize:   bannerSize,
+			BrandName:    brandName,
+			UserID:       campaign.UserID,
+			UserEmail:    user.Mail,
+			UserTelegram: userTelegram,
+			Creatives:    creativesPayload,
+		}); err != nil {
+			return models.Campaign{}, fmt.Errorf("send campaign moderation: %w", err)
+		}
+	}
+
+	return campaign, nil
 }
 
 func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) error {
