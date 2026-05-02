@@ -184,3 +184,5 @@ func (r *Repository) GetUserNotificationSettings(ctx context.Context, userID str
 	err := row.Scan(&out.ID, &out.Mail, &out.CampaignStatusNotifications)
 	return out, err
 }
+
+

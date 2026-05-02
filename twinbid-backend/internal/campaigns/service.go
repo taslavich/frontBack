@@ -17,10 +17,11 @@ type Service struct {
 	repo      *Repository
 	notifySvc *notifications.Service
 	smtpCfg   config.SMTPConfig
+	botCfg    config.BotConfig
 }
 
-func NewService(repo *Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig) *Service {
-	return &Service{repo: repo, notifySvc: notifySvc, smtpCfg: smtpCfg}
+func NewService(repo *Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig, botCfg config.BotConfig) *Service {
+	return &Service{repo: repo, notifySvc: notifySvc, smtpCfg: smtpCfg, botCfg: botCfg}
 }
 
 var (
@@ -82,14 +83,15 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 
 	campaign, err := s.repo.Create(ctx, c)
 	if err != nil {
-		fmt.Printf("Cannot create campaign: %w", err)
+		return models.Campaign{}, fmt.Errorf("create campaign: %w", err)
 	}
 
-	bot := bot.NewBotClient("http://127.0.0.1:8090", "change_me_secret")
+	botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
+	if err := botClient.SendCampaignModeration(ctx, bot.CampaignModerationRequest{}); err != nil {
+		return models.Campaign{}, fmt.Errorf("send campaign moderation: %w", err)
+	}
 
-	err = bot.SendCampaignModeration(ctx, bot.CampaignModerationRequest{})
-
-	return campaign, err
+	return campaign, nil
 }
 
 func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaignRequest) (models.Campaign, error) {

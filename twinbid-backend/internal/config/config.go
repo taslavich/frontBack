@@ -17,6 +17,7 @@ type Config struct {
 	ClickHouse    ClickHouseConfig
 	S3            S3Config
 	Notifications NotificationsConfig
+	Bot           BotConfig
 }
 
 type HTTPConfig struct {
@@ -54,6 +55,11 @@ type ClickHouseConfig struct {
 	Password string `env:"CLICKHOUSE_PASSWORD" env-default:""`
 	Secure   bool   `env:"CLICKHOUSE_SECURE" env-default:"false"`
 	Table    string `env:"CLICKHOUSE_STATS_TABLE" env-default:"campaign_stats"`
+}
+
+type BotConfig struct {
+	BaseURL        string `env:"BOT_BASE_URL" env-default:"http://127.0.0.1:8090"`
+	InternalSecret string `env:"BOT_INTERNAL_SECRET" env-default:"change_me_secret"`
 }
 
 type S3Config struct {
