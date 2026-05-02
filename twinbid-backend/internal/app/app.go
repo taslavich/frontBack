@@ -72,7 +72,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	notificationSvc := notifications.NewService(notificationRepo)
 	notificationHandler := notifications.NewHandler(notificationSvc)
 
-	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), notificationSvc, cfg.SMTP, cfg.Bot)
+	campaignSvc := campaigns.NewService(campaigns.NewRepository(pg), profile.NewRepository(pg), notificationSvc, cfg.SMTP, cfg.Bot)
 	campaignHandler := campaigns.NewHandler(campaignSvc)
 
 	creativeSvc := creatives.NewService(creatives.NewRepository(pg), campaignSvc, s3)
