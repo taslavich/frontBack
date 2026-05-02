@@ -2,7 +2,9 @@ package topups
 
 import (
 	"context"
+	"fmt"
 
+	"twinbid-backend/internal/bot"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
 	"twinbid-backend/internal/promocodes"
@@ -63,6 +65,16 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		BonusAmount: bonus, PromocodeID: promocodeID, TransactionHash: req.TransactionHash,
 		DepositAmount: req.DepositAmount, TotalBalanceIncrease: total, Status: models.TopupStatus(status), Currency: currency,
 	}
+
+	ut, err := s.repo.Create(ctx, t)
+	if err != nil {
+		fmt.Printf("cannot create transaction: %w", err)
+	}
+
+	bot := bot.NewBotClient("http://127.0.0.1:8090", "change_me_secret")
+
+	err = bot.SendPaymentModeration(ctx, bot.PaymentModerationRequest{})
+
 	return s.repo.Create(ctx, t)
 }
 

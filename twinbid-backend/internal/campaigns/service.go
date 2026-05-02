@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"twinbid-backend/internal/bot"
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/mailer"
@@ -78,7 +79,17 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 	if err := validateCampaign(c); err != nil {
 		return models.Campaign{}, err
 	}
-	return s.repo.Create(ctx, c)
+
+	campaign, err := s.repo.Create(ctx, c)
+	if err != nil {
+		fmt.Printf("Cannot create campaign: %w", err)
+	}
+
+	bot := bot.NewBotClient("http://127.0.0.1:8090", "change_me_secret")
+
+	err = bot.SendCampaignModeration(ctx, bot.CampaignModerationRequest{})
+
+	return campaign, err
 }
 
 func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaignRequest) (models.Campaign, error) {
