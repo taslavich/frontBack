@@ -13,6 +13,7 @@ import (
 	"twinbid-backend/internal/models"
 	"twinbid-backend/internal/notifications"
 	"twinbid-backend/internal/profile"
+	"twinbid-backend/internal/storage"
 )
 
 type Service struct {
@@ -24,12 +25,21 @@ type Service struct {
 	notifySvc   *notifications.Service
 	smtpCfg     config.SMTPConfig
 	botCfg      config.BotConfig
+	s3          *storage.S3Storage
 }
 
 func NewService(repo *Repository, creativeRepo interface {
 	ListByCampaign(ctx context.Context, userID, campaignID string) ([]models.Creative, error)
-}, profileRepo *profile.Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig, botCfg config.BotConfig) *Service {
-	return &Service{repo: repo, creativeRepo: creativeRepo, profileRepo: profileRepo, notifySvc: notifySvc, smtpCfg: smtpCfg, botCfg: botCfg}
+}, profileRepo *profile.Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig, botCfg config.BotConfig, s3 *storage.S3Storage) *Service {
+	return &Service{
+		repo:         repo,
+		creativeRepo: creativeRepo,
+		profileRepo:  profileRepo,
+		notifySvc:    notifySvc,
+		smtpCfg:      smtpCfg,
+		botCfg:       botCfg,
+		s3:           s3,
+	}
 }
 
 var (
@@ -226,10 +236,21 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 			if cr.Description != nil {
 				description = *cr.Description
 			}
+
+			imageURL := ""
+			if cr.S3FilePath != nil && *cr.S3FilePath != "" {
+				url, err := s.s3.PresignGet(ctx, *cr.S3FilePath)
+				if err != nil {
+					return models.Campaign{}, fmt.Errorf("presign creative image: %w", err)
+				}
+				imageURL = url
+			}
+
 			creativesPayload = append(creativesPayload, bot.CreativePayload{
 				CreativeName: cr.CreativeName,
 				URL:          cr.Link,
 				Macros:       macros,
+				ImageURL:     imageURL,
 				Title:        title,
 				Description:  description,
 			})
