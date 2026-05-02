@@ -33,3 +33,22 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, http.StatusOK, u)
 }
+
+func (h *Handler) PatchAdmin(w http.ResponseWriter, r *http.Request) {
+	var req PatchProfileAdminRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	if req.UserID == "" {
+		httpx.Error(w, httpx.BadRequest("user_id is required"))
+		return
+	}
+
+	u, err := h.svc.Patch(r.Context(), req.UserID, req.PatchProfileRequest)
+	if err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, u)
+}

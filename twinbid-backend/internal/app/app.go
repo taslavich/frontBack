@@ -184,6 +184,7 @@ func buildRouter(
 		r.Use(auth.Middleware(authSvc))
 		r.Get("/api/profile", profileHandler.Get)
 		r.Patch("/api/profile", profileHandler.Patch)
+		r.Patch("/api/profile_admin", profileHandler.PatchAdmin)
 
 		r.Get("/api/campaigns", campaignHandler.List)
 		r.Post("/api/campaigns", campaignHandler.Create)
@@ -199,8 +200,10 @@ func buildRouter(
 		r.Get("/api/transactions", topupHandler.List)
 		r.Post("/api/transactions", topupHandler.Create)
 		r.Post("/api/transactions/{id}/cancel", topupHandler.Cancel)
+		r.Post("/api/transactions/{id}/cancel_admin", topupHandler.CancelAdmin)
 		// Backend-only action. Frontend may ignore it; PATCH /api/transactions/{id} intentionally is not implemented.
 		r.Post("/api/transactions/{id}/approve", topupHandler.Approve)
+		r.Post("/api/transactions/{id}/approve_admin", topupHandler.ApproveAdmin)
 
 		r.Get("/api/promocodes/{code}", promoHandler.GetByCode)
 
