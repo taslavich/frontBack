@@ -8,6 +8,7 @@ import (
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
+	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 )
 
@@ -15,11 +16,12 @@ type Service struct {
 	repo      *Repository
 	promoSvc  *promocodes.Service
 	promoRepo *promocodes.Repository
+	profile   *profile.Repository
 	botCfg    config.BotConfig
 }
 
-func NewService(repo *Repository, promoSvc *promocodes.Service, promoRepo *promocodes.Repository, botCfg config.BotConfig) *Service {
-	return &Service{repo: repo, promoSvc: promoSvc, promoRepo: promoRepo, botCfg: botCfg}
+func NewService(repo *Repository, promoSvc *promocodes.Service, promoRepo *promocodes.Repository, profileRepo *profile.Repository, botCfg config.BotConfig) *Service {
+	return &Service{repo: repo, promoSvc: promoSvc, promoRepo: promoRepo, profile: profileRepo, botCfg: botCfg}
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]models.UserTransaction, error) {
@@ -72,9 +74,38 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 	if err != nil {
 		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
 	}
+	user, err := s.profile.Get(ctx, userID)
+	if err != nil {
+		return models.UserTransaction{}, fmt.Errorf("get profile: %w", err)
+	}
+	userTelegram := ""
+	if user.Telegram != nil {
+		userTelegram = *user.Telegram
+	}
+	promocodeIDStr := ""
+	if ut.PromocodeID != nil {
+		promocodeIDStr = *ut.PromocodeID
+	}
+	transactionHash := ""
+	if ut.TransactionHash != nil {
+		transactionHash = *ut.TransactionHash
+	}
 
 	botClient := bot.NewBotClient(s.botCfg.BaseURL, s.botCfg.InternalSecret)
-	if err := botClient.SendPaymentModeration(ctx, bot.PaymentModerationRequest{}); err != nil {
+	if err := botClient.SendPaymentModeration(ctx, bot.PaymentModerationRequest{
+		ID:                   ut.ID,
+		TransactionID:        ut.TransactionID,
+		UserID:               ut.UserID,
+		UserEmail:            user.Mail,
+		UserTelegram:         userTelegram,
+		PaymentMethod:        ut.PaymentMethod,
+		DepositAmount:        ut.DepositAmount,
+		BonusAmount:          ut.BonusAmount,
+		TotalBalanceIncrease: ut.TotalBalanceIncrease,
+		Currency:             ut.Currency,
+		PromocodeID:          promocodeIDStr,
+		TransactionHash:      transactionHash,
+	}); err != nil {
 		return models.UserTransaction{}, fmt.Errorf("send payment moderation: %w", err)
 	}
 
