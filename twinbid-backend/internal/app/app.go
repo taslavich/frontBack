@@ -208,9 +208,10 @@ func buildRouter(
 
 		r.Get("/api/transactions", topupHandler.List)
 		r.Post("/api/transactions", topupHandler.Create)
+		r.Get("/api/transactions/{id}", topupHandler.Get)
+		r.Patch("/api/transactions/{id}", topupHandler.Patch)
 		r.Post("/api/transactions/{id}/cancel", topupHandler.Cancel)
 		r.Post("/api/transactions/{id}/cancel_admin", topupHandler.CancelAdmin)
-		// Backend-only action. Frontend may ignore it; PATCH /api/transactions/{id} intentionally is not implemented.
 		r.Post("/api/transactions/{id}/approve", topupHandler.Approve)
 		r.Post("/api/transactions/{id}/approve_admin", topupHandler.ApproveAdmin)
 
