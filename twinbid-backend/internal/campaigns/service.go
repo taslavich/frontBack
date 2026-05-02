@@ -198,6 +198,7 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 
 	///////
 	if current.Status == "moderation" {
+		fmt.Println("MODERATION CASE")
 		user, err := s.profileRepo.Get(ctx, campaign.UserID)
 		if err != nil {
 			return models.Campaign{}, fmt.Errorf("get profile: %w", err)
@@ -255,8 +256,10 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 			UserTelegram: userTelegram,
 			Creatives:    creativesPayload,
 		}); err != nil {
+			fmt.Println("GOT ERROR BOT")
 			return models.Campaign{}, fmt.Errorf("send campaign moderation: %w", err)
 		}
+		fmt.Println("SUCCESS BOT")
 	}
 
 	return campaign, nil
