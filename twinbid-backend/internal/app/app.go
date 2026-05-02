@@ -160,6 +160,7 @@ func runCampaignCompletedTicker(ctx context.Context, pg *sql.DB, cfg config.Conf
 				continue
 			}
 			for rows.Next() {
+				fmt.Println("GOT")
 				var campaignID string
 				if err := rows.Scan(&campaignID); err != nil {
 					log.Printf("campaign completed ticker scan error: %v", err)
