@@ -182,16 +182,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			('WELCOME10', 10, NULL)
 		ON CONFLICT (promocode_text) DO NOTHING;`,
 		`ALTER TABLE users ALTER COLUMN low_balance_notified SET DEFAULT true;`,
-		`DO $$
-		BEGIN
-			IF NOT EXISTS (
-				SELECT 1 FROM pg_database 
-				WHERE datname = 'twinbid' 
-				AND datconfig @> '{timezone=UTC}'
-			) THEN
-				ALTER DATABASE twinbid SET timezone TO 'UTC';
-			END IF;
-		END $$;`,
+		`ALTER DATABASE twinbid SET timezone TO 'UTC';`,
 	}
 	for _, q := range queries {
 		if _, err := db.ExecContext(ctx, q); err != nil {
