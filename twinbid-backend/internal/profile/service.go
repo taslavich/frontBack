@@ -35,9 +35,8 @@ func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRe
 		u.ManagerTelegram = *patch.ManagerTelegram
 	}
 	if patch.Balance != nil {
-		balance := u.Balance + *patch.Balance
-		u.Balance = *patch.Balance
-		if balance > u.BalanceTreshold {
+		u.Balance = u.Balance + *patch.Balance
+		if u.Balance > u.BalanceTreshold {
 			u.LowBalanceNotified = false
 		}
 	}

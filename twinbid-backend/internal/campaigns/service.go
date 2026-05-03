@@ -302,7 +302,10 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 }
 
 func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) error {
-	if !((current.Status == "active" && newStatus == "completed") || (current.Status == "moderation" && newStatus == "active") || (current.Status == "active" && newStatus == "no_budget")) {
+	if !((current.Status == "moderation" && newStatus == "waiting") ||
+		(current.Status == "waiting" && newStatus == "active") ||
+		(current.Status == "active" && newStatus == "no_budget") ||
+		(current.Status == "active" && newStatus == "completed")) {
 		return nil
 	}
 	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)

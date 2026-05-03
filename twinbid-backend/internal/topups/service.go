@@ -13,11 +13,12 @@ import (
 )
 
 type Service struct {
-	repo      *Repository
-	promoSvc  *promocodes.Service
-	promoRepo *promocodes.Repository
-	profile   *profile.Repository
-	botCfg    config.BotConfig
+	repo       *Repository
+	promoSvc   *promocodes.Service
+	promoRepo  *promocodes.Repository
+	profile    *profile.Repository
+	botCfg     config.BotConfig
+	profileSvc *profile.Service
 }
 
 func NewService(repo *Repository, promoSvc *promocodes.Service, promoRepo *promocodes.Repository, profileRepo *profile.Repository, botCfg config.BotConfig) *Service {
@@ -180,15 +181,14 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 }
 
 // Approve is backend-side business action: after approval it increases user balance and increments promocode usage_count.
-func (s *Service) Approve(ctx context.Context, userID, id string, profileSvc *profile.Service) (models.UserTransaction, error) {
+func (s *Service) Approve(ctx context.Context, userID, id string) (models.UserTransaction, error) {
 	ut, err := s.repo.Approve(ctx, userID, id)
 	if err != nil {
-		fmt.Errorf("Cannot approve: %w", err)
+		return models.UserTransaction{}, fmt.Errorf("Cannot approve: %w", err)
 	}
 
-	if _, err := profileSvc.Patch(ctx, userID, profile.PatchProfileRequest{Balance: floatPtr()}); err != nil {
-		fmt.Errorf("campaign completed ticker patch status error: %v", err)
-		continue
+	if _, err := s.profileSvc.Patch(ctx, userID, profile.PatchProfileRequest{Balance: floatPtr(ut.TotalBalanceIncrease)}); err != nil {
+		return models.UserTransaction{}, fmt.Errorf("campaign completed ticker patch status error: %v", err)
 	}
 
 	return ut, nil
