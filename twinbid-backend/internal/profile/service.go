@@ -2,6 +2,7 @@ package profile
 
 import (
 	"context"
+	"log"
 
 	"twinbid-backend/internal/models"
 )
@@ -39,6 +40,8 @@ func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRe
 		if u.Balance > u.BalanceTreshold {
 			u.LowBalanceNotified = false
 		}
+
+		log.Printf("patch +balance %d, user id %s", patch.Balance, userID)
 	}
 	if patch.Timezone != nil {
 		u.Timezone = *patch.Timezone
