@@ -91,9 +91,19 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
-		`ALTER TABLE campaigns 
-			ADD CONSTRAINT IF NOT EXISTS check_campaign_dates 
-			CHECK (start_ts <= end_ts);`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 
+				FROM information_schema.table_constraints 
+				WHERE constraint_name = 'check_campaign_dates' 
+				AND table_name = 'campaigns'
+			) THEN
+				ALTER TABLE campaigns 
+				ADD CONSTRAINT check_campaign_dates 
+				CHECK (start_ts <= end_ts);
+			END IF;
+		END $$;`,
 		`CREATE TABLE IF NOT EXISTS creatives (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			campaign_id UUID NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
