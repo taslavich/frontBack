@@ -90,11 +90,15 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		IP:                 nonNilMap(req.IP),
 	}
 	if c.StartTS.IsZero() {
-		c.StartTS = time.Now()
+		c.StartTS = time.Now().UTC()
 	}
 	if c.EndTS.IsZero() {
 		c.EndTS = c.StartTS.AddDate(0, 1, 0)
 	}
+
+	c.StartTS = c.StartTS.UTC()
+	c.EndTS = c.EndTS.UTC()
+
 	if err := validateCampaign(c); err != nil {
 		return models.Campaign{}, err
 	}
@@ -193,6 +197,14 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	if req.NoBudgetNotified != nil {
 		current.NoBudgetNotified = *req.NoBudgetNotified
 	}
+
+	if req.StartTS != nil {
+		current.StartTS = req.StartTS.UTC()
+	}
+	if req.EndTS != nil {
+		current.EndTS = req.EndTS.UTC()
+	}
+
 	if err := validateCampaign(current); err != nil {
 		return models.Campaign{}, err
 	}

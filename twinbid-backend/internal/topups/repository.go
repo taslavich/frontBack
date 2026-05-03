@@ -85,9 +85,7 @@ func (r *Repository) UserUsedPromocode(ctx context.Context, userID, promocodeID 
 	return exists, err
 }
 
-func (r *Repository) Approve(ctx context.Context, userID, topupID string, promoRepo interface {
-	IncrementUsage(context.Context, *sql.Tx, string) error
-}) (models.UserTransaction, error) {
+func (r *Repository) Approve(ctx context.Context, userID, topupID string) (models.UserTransaction, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.UserTransaction{}, err
@@ -112,11 +110,6 @@ func (r *Repository) Approve(ctx context.Context, userID, topupID string, promoR
 		WHERE id=$1
 	`, userID, t.TotalBalanceIncrease); err != nil {
 		return models.UserTransaction{}, err
-	}
-	if t.PromocodeID != nil && *t.PromocodeID != "" {
-		if err := promoRepo.IncrementUsage(ctx, tx, *t.PromocodeID); err != nil {
-			return models.UserTransaction{}, err
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return models.UserTransaction{}, err

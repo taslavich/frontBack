@@ -14,14 +14,15 @@ type Claims struct {
 }
 
 func GenerateJWT(secret, userID, email, tokenType string, ttl time.Duration) (string, time.Time, error) {
-	expiresAt := time.Now().Add(ttl)
+	now := time.Now().UTC()
+	expiresAt := now.Add(ttl)
 	claims := Claims{
 		TokenType: tokenType,
 		Email:     email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

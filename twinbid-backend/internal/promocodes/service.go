@@ -16,7 +16,7 @@ func (s *Service) GetByCode(ctx context.Context, code string) (models.Promocode,
 	if err != nil {
 		return models.Promocode{}, err
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	if p.ValidFrom != nil && now.Before(*p.ValidFrom) {
 		return models.Promocode{}, httpx.BadRequest("promocode is not active yet")
 	}
