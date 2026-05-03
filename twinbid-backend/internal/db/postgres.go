@@ -158,6 +158,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+		`CREATE INDEX IF NOT EXISTS idx_campaigns_campaign_id ON campaigns(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON campaigns(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_campaigns_user_created_at_desc ON campaigns(user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_campaigns_user_status ON campaigns(user_id, status);`,
@@ -168,6 +169,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON user_transactions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at_desc ON user_transactions(user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_promocode_status ON user_transactions(user_id, promocode_id, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_campaign_id ON notifications(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_created_at_desc ON notifications(user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_campaign_type_status ON notifications(user_id, campaign_id, type, status);`,
