@@ -116,6 +116,9 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	if err != nil {
 		return models.Campaign{}, err
 	}
+
+	oldStatus := current.Status
+
 	if req.CampaignName != nil {
 		current.CampaignName = *req.CampaignName
 	}
@@ -209,16 +212,16 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 		return models.Campaign{}, err
 	}
 
-	if req.Status != nil {
-		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status); err != nil {
-			return models.Campaign{}, err
-		}
-	}
-
 	////////////////////////////////////////////
 	campaign, err := s.repo.Update(ctx, current)
 	if err != nil {
 		return models.Campaign{}, fmt.Errorf("cannot patch campaign: %w", err)
+	}
+
+	if req.Status != nil && oldStatus != *req.Status {
+		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, campaign, oldStatus, *req.Status); err != nil {
+			return models.Campaign{}, err
+		}
 	}
 
 	///////
@@ -301,32 +304,42 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	return campaign, nil
 }
 
-func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, current models.Campaign, newStatus string) error {
-	if !((current.Status == "moderation" && newStatus == "waiting") ||
-		(current.Status == "waiting" && newStatus == "active") ||
-		(current.Status == "active" && newStatus == "no_budget") ||
-		(current.Status == "active" && newStatus == "completed")) {
+func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, campaign models.Campaign, oldStatus, newStatus string) error {
+	if !((oldStatus == "moderation" && newStatus == "waiting") ||
+		(oldStatus == "waiting" && newStatus == "active") ||
+		(oldStatus == "active" && newStatus == "no_budget") ||
+		(oldStatus == "active" && newStatus == "completed")) {
 		return nil
 	}
-	body := fmt.Sprintf("Статус вашей кампании %s был изменен с %s на %s.", current.CampaignName, current.Status, newStatus)
-	if _, err := s.notifySvc.Create(ctx, current.UserID, notifications.CreateNotificationRequest{
-		CampaignID: &current.CampaignID,
+
+	body := fmt.Sprintf(
+		"Статус вашей кампании %s был изменен с %s на %s.",
+		campaign.CampaignName,
+		oldStatus,
+		newStatus,
+	)
+
+	if _, err := s.notifySvc.Create(ctx, campaign.UserID, notifications.CreateNotificationRequest{
+		CampaignID: &campaign.CampaignID,
 		Text:       body,
 		Type:       "campaign_status",
 	}); err != nil {
 		return fmt.Errorf("create campaign status notification: %w", err)
 	}
 
-	user, err := s.profileRepo.Get(ctx, current.UserID)
+	user, err := s.profileRepo.Get(ctx, campaign.UserID)
 	if err != nil {
 		return fmt.Errorf("get user notification settings: %w", err)
 	}
+
 	if !user.CampaignStatusNotifications || user.Mail == "" {
 		return nil
 	}
+
 	if err := mailer.SendEmail(s.smtpCfg, user.Mail, "Изменение статуса кампании", body); err != nil {
 		return fmt.Errorf("send campaign status email: %w", err)
 	}
+
 	return nil
 }
 
