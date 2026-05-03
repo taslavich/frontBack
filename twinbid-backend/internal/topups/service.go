@@ -135,7 +135,7 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
 	}
 
-	if current.TransactionHash != nil && *current.TransactionHash != "" && current.Status == "pending" && current.PromocodeID != nil && *current.PromocodeID != "" {
+	if current.Status == "pending" && current.PromocodeID != nil && *current.PromocodeID != "" {
 		if err := s.promoRepo.IncrementUsage(ctx, *current.PromocodeID); err != nil {
 			return models.UserTransaction{}, err
 		}
@@ -180,8 +180,20 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 }
 
 // Approve is backend-side business action: after approval it increases user balance and increments promocode usage_count.
-func (s *Service) Approve(ctx context.Context, userID, id string) (models.UserTransaction, error) {
-	return s.repo.Approve(ctx, userID, id)
+func (s *Service) Approve(ctx context.Context, userID, id string, profileSvc *profile.Service) (models.UserTransaction, error) {
+	ut, err := s.repo.Approve(ctx, userID, id)
+	if err != nil {
+		fmt.Errorf("Cannot approve: %w", err)
+	}
+
+	if _, err := profileSvc.Patch(ctx, userID, profile.PatchProfileRequest{Balance: floatPtr()}); err != nil {
+		fmt.Errorf("campaign completed ticker patch status error: %v", err)
+		continue
+	}
+
+	return ut, nil
 }
 
 var validTopupStatus = map[string]bool{"draft": true, "pending": true, "approved": true, "rejected": true, "cancelled": true}
+
+func floatPtr(v float64) *float64 { return &v }
