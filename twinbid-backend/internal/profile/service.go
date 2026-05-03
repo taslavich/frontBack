@@ -2,7 +2,7 @@ package profile
 
 import (
 	"context"
-	"log"
+	"database/sql"
 
 	"twinbid-backend/internal/models"
 )
@@ -16,10 +16,28 @@ func (s *Service) Get(ctx context.Context, userID string) (models.User, error) {
 }
 
 func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRequest) (models.User, error) {
-	u, err := s.repo.Get(ctx, userID)
+	return s.patch(ctx, nil, userID, patch)
+}
+
+func (s *Service) PatchTx(ctx context.Context, tx *sql.Tx, userID string, patch PatchProfileRequest) (models.User, error) {
+	return s.patch(ctx, tx, userID, patch)
+}
+
+func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch PatchProfileRequest) (models.User, error) {
+	var (
+		u   models.User
+		err error
+	)
+
+	if tx != nil {
+		u, err = s.repo.GetTx(ctx, tx, userID)
+	} else {
+		u, err = s.repo.Get(ctx, userID)
+	}
 	if err != nil {
 		return models.User{}, err
 	}
+
 	if patch.Login != nil {
 		u.Login = *patch.Login
 	}
@@ -37,11 +55,10 @@ func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRe
 	}
 	if patch.Balance != nil {
 		u.Balance = u.Balance + *patch.Balance
+
 		if u.Balance > u.BalanceTreshold {
 			u.LowBalanceNotified = false
 		}
-
-		log.Printf("patch +balance %d, user id %s", patch.Balance, userID)
 	}
 	if patch.Timezone != nil {
 		u.Timezone = *patch.Timezone
@@ -60,9 +77,15 @@ func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRe
 	}
 	if patch.BalanceTreshold != nil {
 		u.BalanceTreshold = *patch.BalanceTreshold
+
 		if u.Balance > u.BalanceTreshold {
 			u.LowBalanceNotified = false
 		}
 	}
+
+	if tx != nil {
+		return s.repo.UpdateTx(ctx, tx, userID, u)
+	}
+
 	return s.repo.Update(ctx, userID, u)
 }

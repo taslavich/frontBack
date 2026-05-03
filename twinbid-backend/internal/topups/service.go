@@ -21,8 +21,22 @@ type Service struct {
 	profileSvc *profile.Service
 }
 
-func NewService(repo *Repository, promoSvc *promocodes.Service, promoRepo *promocodes.Repository, profileRepo *profile.Repository, botCfg config.BotConfig) *Service {
-	return &Service{repo: repo, promoSvc: promoSvc, promoRepo: promoRepo, profile: profileRepo, botCfg: botCfg}
+func NewService(
+	repo *Repository,
+	promoSvc *promocodes.Service,
+	promoRepo *promocodes.Repository,
+	profileRepo *profile.Repository,
+	profileSvc *profile.Service,
+	botCfg config.BotConfig,
+) *Service {
+	return &Service{
+		repo:       repo,
+		promoSvc:   promoSvc,
+		promoRepo:  promoRepo,
+		profile:    profileRepo,
+		profileSvc: profileSvc,
+		botCfg:     botCfg,
+	}
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]models.UserTransaction, error) {
@@ -93,6 +107,8 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 		return models.UserTransaction{}, err
 	}
 
+	oldStatus := current.Status
+
 	if req.TransactionID != nil {
 		current.TransactionID = *req.TransactionID
 	}
@@ -130,31 +146,38 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 		return models.UserTransaction{}, httpx.BadRequest("invalid status")
 	}
 
-	//////////////////////////
 	ut, err := s.repo.Update(ctx, current)
 	if err != nil {
-		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
+		return models.UserTransaction{}, fmt.Errorf("update transaction: %w", err)
 	}
 
-	if current.Status == "pending" && current.PromocodeID != nil && *current.PromocodeID != "" {
-		if err := s.promoRepo.IncrementUsage(ctx, *current.PromocodeID); err != nil {
-			return models.UserTransaction{}, err
+	becamePending := oldStatus != models.TopupPending && ut.Status == models.TopupPending
+
+	if becamePending && ut.PromocodeID != nil && *ut.PromocodeID != "" {
+		if err := s.promoRepo.IncrementUsage(ctx, *ut.PromocodeID); err != nil {
+			return models.UserTransaction{}, fmt.Errorf("increment promocode usage: %w", err)
 		}
 	}
-	////////////////
+
+	if !becamePending {
+		return ut, nil
+	}
 
 	user, err := s.profile.Get(ctx, userID)
 	if err != nil {
 		return models.UserTransaction{}, fmt.Errorf("get profile: %w", err)
 	}
+
 	userTelegram := ""
 	if user.Telegram != nil {
 		userTelegram = *user.Telegram
 	}
+
 	promocodeIDStr := ""
 	if ut.PromocodeID != nil {
 		promocodeIDStr = *ut.PromocodeID
 	}
+
 	transactionHash := ""
 	if ut.TransactionHash != nil {
 		transactionHash = *ut.TransactionHash
@@ -177,18 +200,30 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 	}); err != nil {
 		return models.UserTransaction{}, fmt.Errorf("send payment moderation: %w", err)
 	}
+
 	return ut, nil
 }
 
-// Approve is backend-side business action: after approval it increases user balance and increments promocode usage_count.
 func (s *Service) Approve(ctx context.Context, userID, id string) (models.UserTransaction, error) {
-	ut, err := s.repo.Approve(ctx, userID, id)
+	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
-		return models.UserTransaction{}, fmt.Errorf("Cannot approve: %w", err)
+		return models.UserTransaction{}, err
+	}
+	defer tx.Rollback()
+
+	ut, err := s.repo.ApproveTx(ctx, tx, userID, id)
+	if err != nil {
+		return models.UserTransaction{}, fmt.Errorf("cannot approve topup: %w", err)
 	}
 
-	if _, err := s.profileSvc.Patch(ctx, userID, profile.PatchProfileRequest{Balance: floatPtr(ut.TotalBalanceIncrease)}); err != nil {
-		return models.UserTransaction{}, fmt.Errorf("campaign completed ticker patch status error: %v", err)
+	if _, err := s.profileSvc.PatchTx(ctx, tx, userID, profile.PatchProfileRequest{
+		Balance: floatPtr(ut.TotalBalanceIncrease),
+	}); err != nil {
+		return models.UserTransaction{}, fmt.Errorf("patch profile balance: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return models.UserTransaction{}, err
 	}
 
 	return ut, nil

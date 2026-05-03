@@ -65,7 +65,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 	}()
 
-	profileSvc := profile.NewService(profile.NewRepository(pg))
+	profileRepo := profile.NewRepository(pg)
+	profileSvc := profile.NewService(profileRepo)
 	profileHandler := profile.NewHandler(profileSvc)
 
 	notificationRepo := notifications.NewRepository(pg)
@@ -76,7 +77,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	campaignSvc := campaigns.NewService(
 		campaigns.NewRepository(pg),
 		creativeRepo,
-		profile.NewRepository(pg),
+		profileRepo,
 		notificationSvc,
 		cfg.SMTP,
 		cfg.Bot,
@@ -91,7 +92,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	promoSvc := promocodes.NewService(promoRepo)
 	promoHandler := promocodes.NewHandler(promoSvc)
 
-	topupSvc := topups.NewService(topups.NewRepository(pg), promoSvc, promoRepo, profile.NewRepository(pg), cfg.Bot)
+	topupSvc := topups.NewService(
+		topups.NewRepository(pg),
+		promoSvc,
+		promoRepo,
+		profileRepo,
+		profileSvc,
+		cfg.Bot,
+	)
 	topupHandler := topups.NewHandler(topupSvc)
 
 	/*statsHandler := stats.NewHandler(statsSvc)*/

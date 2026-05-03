@@ -132,3 +132,30 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 }
 
 func NewTransactionID() string { return uuid.NewString() }
+
+func (r *Repository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTx(ctx, nil)
+}
+
+func (r *Repository) ApproveTx(ctx context.Context, tx *sql.Tx, userID, topupID string) (models.UserTransaction, error) {
+	row := tx.QueryRowContext(ctx, `
+		UPDATE user_transactions 
+		SET status='approved', updated_at=NOW()
+		WHERE id=$2 
+		  AND user_id=$1 
+		  AND status='pending'
+		RETURNING id, user_id, transaction_time, transaction_id, payment_method, bonus_amount,
+		          promocode_id, transaction_hash, deposit_amount, total_balance_increase,
+		          status, currency, created_at, updated_at
+	`, userID, topupID)
+
+	t, err := scanTx(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.UserTransaction{}, httpx.NotFound("topup not found or cannot be approved")
+	}
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+
+	return t, nil
+}
