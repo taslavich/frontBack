@@ -143,7 +143,7 @@ func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campa
 }
 
 func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc *campaigns.Service) {
-	t := time.NewTicker(24 * time.Hour)
+	t := time.NewTicker(1 * time.Minute)
 	defer t.Stop()
 	for {
 		select {
