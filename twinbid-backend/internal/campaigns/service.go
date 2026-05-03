@@ -131,9 +131,6 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 		current.W = req.W
 	}
 	if req.Status != nil {
-		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status); err != nil {
-			return models.Campaign{}, err
-		}
 		current.Status = *req.Status
 	}
 	if req.TrafficType != nil {
@@ -198,6 +195,12 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	}
 	if err := validateCampaign(current); err != nil {
 		return models.Campaign{}, err
+	}
+
+	if req.Status != nil {
+		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, current, *req.Status); err != nil {
+			return models.Campaign{}, err
+		}
 	}
 
 	////////////////////////////////////////////

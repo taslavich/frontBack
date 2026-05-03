@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	_ "github.com/lib/pq"
 )
 
 func NewPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
@@ -93,6 +91,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+		`ALTER TABLE campaigns 
+			ADD CONSTRAINT IF NOT EXISTS check_campaign_dates 
+			CHECK (start_ts <= end_ts);`,
 		`CREATE TABLE IF NOT EXISTS creatives (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			campaign_id UUID NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
