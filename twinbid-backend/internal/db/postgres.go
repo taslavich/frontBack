@@ -41,7 +41,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			low_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			campaign_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			balance_treshold DECIMAL(10,2) NOT NULL DEFAULT 100,
-			low_balance_notified BOOLEAN NOT NULL DEFAULT false,
+			low_balance_notified BOOLEAN NOT NULL DEFAULT true,
 			verified BOOLEAN NOT NULL DEFAULT false,
 			password TEXT NOT NULL,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -181,6 +181,17 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			('TWINBID25', 25, NULL),
 			('WELCOME10', 10, NULL)
 		ON CONFLICT (promocode_text) DO NOTHING;`,
+		`ALTER TABLE users ALTER COLUMN low_balance_notified SET DEFAULT true;`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_database 
+				WHERE datname = 'twinbid' 
+				AND datconfig @> '{timezone=UTC}'
+			) THEN
+				ALTER DATABASE twinbid SET timezone TO 'UTC';
+			END IF;
+		END $$;`,
 	}
 	for _, q := range queries {
 		if _, err := db.ExecContext(ctx, q); err != nil {

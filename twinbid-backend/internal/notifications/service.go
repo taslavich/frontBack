@@ -18,12 +18,12 @@ func (s *Service) List(ctx context.Context, userID, status string) ([]models.Not
 	if status != "" && !validStatus[status] {
 		return nil, httpx.BadRequest("invalid status")
 	}
-	if status == "" || status == "active" {
+	/*if status == "" || status == "active" {
 		if err := s.repo.EnsureAutomatic(ctx, userID); err != nil {
 			return nil, err
 		}
-	}
-	return s.repo.List(ctx, userID, status)
+	}*/
+	return s.repo.List(ctx, userID, "active")
 }
 
 func (s *Service) Create(ctx context.Context, userID string, req CreateNotificationRequest) (models.Notification, error) {

@@ -56,7 +56,7 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 	if patch.Balance != nil {
 		u.Balance = u.Balance + *patch.Balance
 
-		if u.Balance > u.BalanceTreshold {
+		if u.Balance >= u.BalanceTreshold {
 			u.LowBalanceNotified = false
 		}
 	}
@@ -78,7 +78,7 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 	if patch.BalanceTreshold != nil {
 		u.BalanceTreshold = *patch.BalanceTreshold
 
-		if u.Balance > u.BalanceTreshold {
+		if u.Balance >= u.BalanceTreshold {
 			u.LowBalanceNotified = false
 		}
 	}
