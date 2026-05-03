@@ -46,7 +46,7 @@ var (
 	validFormat  = map[string]bool{"banner": true, "popunder": true, "native": true, "push": true}
 	validPricing = map[string]bool{"cpm": true, "cpc": true}
 	validTraffic = map[string]bool{"mainstream": true, "adult": true, "mixed": true}
-	validStatus  = map[string]bool{"active": true, "paused": true, "draft": true, "completed": true, "moderation": true, "no_budget": true}
+	validStatus  = map[string]bool{"active": true, "paused": true, "waiting": true, "draft": true, "completed": true, "moderation": true, "no_budget": true}
 )
 
 func (s *Service) List(ctx context.Context, userID string) ([]models.Campaign, error) {

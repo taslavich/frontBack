@@ -97,6 +97,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	/*statsHandler := stats.NewHandler(statsSvc)*/
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
+	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, nil /*statsHandler*/)
 	return &App{Cfg: cfg, Postgres: pg /*Stats: statsSvc,*/, Router: r}, nil
@@ -135,6 +136,43 @@ func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campa
 			}
 			if err := rows.Err(); err != nil {
 				log.Printf("no budget ticker rows iteration error: %v", err)
+			}
+			_ = rows.Close()
+		}
+	}
+}
+
+func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc *campaigns.Service) {
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			rows, err := pg.QueryContext(ctx, `
+				SELECT c.campaign_id
+				FROM campaigns c
+				WHERE c.status = 'waiting'
+				  AND c.start_ts <= NOW()
+			`)
+			if err != nil {
+				log.Printf("campaign waiting ticker query error: %v", err)
+				continue
+			}
+			for rows.Next() {
+				var campaignID string
+				if err := rows.Scan(&campaignID); err != nil {
+					log.Printf("campaign waiting ticker scan error: %v", err)
+					continue
+				}
+				if _, err := campaignSvc.Patch(ctx, campaignID, campaigns.PatchCampaignRequest{Status: strPtr("active")}); err != nil {
+					log.Printf("campaign waiting ticker patch status error: %v", err)
+					continue
+				}
+			}
+			if err := rows.Err(); err != nil {
+				log.Printf("campaign waiting ticker rows iteration error: %v", err)
 			}
 			_ = rows.Close()
 		}
