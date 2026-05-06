@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -209,7 +210,14 @@ func (s *Service) where(req QueryRequest, userID, from, to string) (string, []an
 		}
 	}
 
-	for key, values := range req.Filters {
+	filterKeys := make([]string, 0, len(req.Filters))
+	for key := range req.Filters {
+		filterKeys = append(filterKeys, key)
+	}
+	sort.Strings(filterKeys)
+
+	for _, key := range filterKeys {
+		values := req.Filters[key]
 		if len(values) == 0 {
 			continue
 		}
