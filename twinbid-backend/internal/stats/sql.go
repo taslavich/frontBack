@@ -65,7 +65,7 @@ var filterColumns = map[string]string{
 	string(FilterByCountry):    "geo",
 	string(FilterByOS):         "os",
 	string(FilterByBrowser):    "browser",
-	string(FilterByDeviceType): "device_type",
+	string(FilterByDeviceType): "lowerUTF8(device_type)",
 }
 
 const impressionsExpression = "toUInt64(ifNull(sum(impressions), 0))"
