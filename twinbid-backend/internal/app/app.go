@@ -42,10 +42,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("s3: %w", err)
 	}
-	/*statsSvc, err := stats.NewService(ctx, cfg.ClickHouse)
+	statsSvc, err := stats.NewService(ctx, cfg.ClickHouse)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: %w", err)
-	}*/
+	}
+	log.Println("✅ Connected to ClickHouse")
 
 	authRepo := auth.NewRepository(pg)
 	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
@@ -102,13 +103,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	)
 	topupHandler := topups.NewHandler(topupSvc)
 
-	/*statsHandler := stats.NewHandler(statsSvc)*/
+	statsHandler := stats.NewHandler(statsSvc)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
-	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, nil /*statsHandler*/)
-	return &App{Cfg: cfg, Postgres: pg /*Stats: statsSvc,*/, Router: r}, nil
+	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
+	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
 }
 
 func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campaignSvc *campaigns.Service) {
@@ -306,9 +307,7 @@ func buildRouter(
 		r.Post("/api/notifications", notificationHandler.Create)
 		r.Patch("/api/notifications/{id}", notificationHandler.Patch)
 
-		/*r.Post("/api/stats/query", statsHandler.Query)
-		r.Get("/api/stats/campaign/{id}/summary", statsHandler.CampaignSummary)
-		r.Get("/api/stats/overview", statsHandler.Overview)*/
+		r.Post("/api/stats/query", statsHandler.Query)
 	})
 
 	return r

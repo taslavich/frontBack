@@ -9,6 +9,8 @@ import (
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/google/uuid"
+
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
 )
@@ -18,134 +20,160 @@ type Service struct {
 	table string
 }
 
+type groupSpec struct {
+	selectExpr string
+	groupExpr  string
+	orderExpr  string
+}
+
 func NewService(ctx context.Context, cfg config.ClickHouseConfig) (*Service, error) {
-	dsn := buildDSN(cfg)
-	db, err := sql.Open("clickhouse", dsn)
+	db, err := sql.Open("clickhouse", buildDSN(cfg))
 	if err != nil {
 		return nil, err
 	}
+
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
 	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
-	return &Service{db: db, table: cfg.Table}, nil
+
+	table := strings.TrimSpace(cfg.Table)
+	if table == "" {
+		table = "agg_stats"
+	}
+
+	return &Service{db: db, table: table}, nil
 }
 
 func (s *Service) Close() error { return s.db.Close() }
 
-var groupColumns = map[string]string{
-	"date":        "toString(date)",
-	"hour":        "formatDateTime(hour, '%Y-%m-%d %H:00')",
-	"campaign":    "campaign_id",
-	"country":     "country",
-	"format":      "format_type",
-	"creative":    "creative_id",
-	"os":          "os",
-	"browser":     "browser",
-	"device_type": "device_type",
-	"language":    "language",
-	"site_id":     "site_id",
+var groupColumns = map[GroupBy]groupSpec{
+	GroupByDate: {
+		selectExpr: "toString(event_date)",
+		groupExpr:  "event_date",
+		orderExpr:  "event_date",
+	},
+	GroupByHour: {
+		selectExpr: "formatDateTime(toStartOfHour(event_hour), '%F %H:00', 'UTC')",
+		groupExpr:  "toStartOfHour(event_hour)",
+		orderExpr:  "toStartOfHour(event_hour)",
+	},
+	GroupByCountry: {
+		selectExpr: "geo",
+		groupExpr:  "geo",
+	},
+	GroupByOS: {
+		selectExpr: "os",
+		groupExpr:  "os",
+	},
+	GroupByBrowser: {
+		selectExpr: "browser",
+		groupExpr:  "browser",
+	},
+	GroupByDeviceType: {
+		selectExpr: "device_type",
+		groupExpr:  "device_type",
+	},
+	GroupBySiteID: {
+		selectExpr: "site_id",
+		groupExpr:  "site_id",
+	},
+	GroupByCampaign: {
+		selectExpr: "toString(campaign_id)",
+		groupExpr:  "campaign_id",
+	},
 }
 
 var filterColumns = map[string]string{
-	"campaign":    "campaign_id",
-	"country":     "country",
-	"format":      "format_type",
-	"creative":    "creative_id",
-	"os":          "os",
-	"browser":     "browser",
-	"device_type": "device_type",
-	"language":    "language",
-	"site_id":     "site_id",
+	string(FilterByCountry):    "geo",
+	string(FilterByOS):         "os",
+	string(FilterByBrowser):    "browser",
+	string(FilterByDeviceType): "device_type",
 }
 
-func (s *Service) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
-	if len(req.GroupBy) == 0 {
-		req.GroupBy = []string{"campaign"}
-	}
-	for _, g := range req.GroupBy {
-		if _, ok := groupColumns[g]; !ok {
-			return QueryResponse{}, httpx.BadRequest("invalid group_by: " + g)
-		}
-	}
-	from, to := normalizeDates(req.From, req.To)
+// One common spent formula for the single stats endpoint.
+// In your current MV spend_views_table is already stored as win_dsp_price / 1000,
+// and spend_clicks_table is stored as win_dsp_price, so we do not divide it here again.
+const spentExpression = "round(sum(spend_views_table) + sum(spend_clicks_table), 2)"
 
-	selectParts := make([]string, 0, len(req.GroupBy)+4)
-	groupExprs := make([]string, 0, len(req.GroupBy))
-	for _, g := range req.GroupBy {
-		expr := groupColumns[g]
-		selectParts = append(selectParts, fmt.Sprintf("%s AS %s", expr, g))
-		groupExprs = append(groupExprs, expr)
+func (s *Service) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
+	if req.GroupBy == "" {
+		req.GroupBy = GroupByCampaign
 	}
-	selectParts = append(selectParts, "sum(impressions) AS impressions", "sum(clicks) AS clicks", "sum(spent) AS spent", "if(sum(impressions)=0, 0, round(sum(clicks)/sum(impressions)*100, 2)) AS ctr")
+
+	spec, ok := groupColumns[req.GroupBy]
+	if !ok {
+		return QueryResponse{}, httpx.BadRequest("invalid group_by: " + string(req.GroupBy))
+	}
+
+	from, to, err := normalizeDates(req.From, req.To)
+	if err != nil {
+		return QueryResponse{}, err
+	}
 
 	where, args, err := s.where(req, userID, from, to)
 	if err != nil {
 		return QueryResponse{}, err
 	}
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s GROUP BY %s ORDER BY impressions DESC LIMIT 1000", strings.Join(selectParts, ", "), s.table, where, strings.Join(groupExprs, ", "))
+
+	query := fmt.Sprintf(`
+SELECT
+    %s AS bucket,
+    toUInt64(sum(impressions)) AS impressions,
+    toUInt64(sum(clicks)) AS clicks,
+    %s AS spent,
+    round(if(sum(impressions) = 0, 0, sum(clicks) * 100.0 / sum(impressions)), 2) AS ctr
+FROM %s
+WHERE %s
+GROUP BY %s
+%s`, spec.selectExpr, spentExpression, s.table, where, spec.groupExpr, buildOrderBy(spec))
+
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return QueryResponse{}, err
 	}
 	defer rows.Close()
 
-	var out []Row
+	out := make(map[string]Summary)
 	for rows.Next() {
-		groupValues := make([]sql.NullString, len(req.GroupBy))
-		dest := make([]any, 0, len(req.GroupBy)+4)
-		for i := range groupValues {
-			dest = append(dest, &groupValues[i])
-		}
-		var impressions, clicks uint64
-		var spent, ctr float64
-		dest = append(dest, &impressions, &clicks, &spent, &ctr)
-		if err := rows.Scan(dest...); err != nil {
+		var bucket string
+		var summary Summary
+		if err := rows.Scan(&bucket, &summary.Impressions, &summary.Clicks, &summary.Spent, &summary.CTR); err != nil {
 			return QueryResponse{}, err
 		}
-		m := Row{}
-		for i, g := range req.GroupBy {
-			if groupValues[i].Valid {
-				m[g] = groupValues[i].String
-			} else {
-				m[g] = ""
-			}
-		}
-		m["impressions"] = impressions
-		m["clicks"] = clicks
-		m["spent"] = spent
-		m["ctr"] = ctr
-		out = append(out, m)
+		out[bucket] = summary
 	}
 	if err := rows.Err(); err != nil {
 		return QueryResponse{}, err
 	}
-	totals, err := s.Totals(ctx, userID, req, from, to)
+
+	totals, err := s.totals(ctx, req, userID, from, to)
 	if err != nil {
 		return QueryResponse{}, err
 	}
+
 	return QueryResponse{Rows: out, Totals: totals}, nil
 }
 
-func (s *Service) Overview(ctx context.Context, userID string) (Summary, error) {
-	from := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
-	to := time.Now().Format("2006-01-02")
-	return s.Totals(ctx, userID, QueryRequest{}, from, to)
-}
-
-func (s *Service) CampaignSummary(ctx context.Context, userID, campaignID string) (Summary, error) {
-	from := time.Now().AddDate(0, -12, 0).Format("2006-01-02")
-	to := time.Now().Format("2006-01-02")
-	return s.Totals(ctx, userID, QueryRequest{CampaignIDs: []string{campaignID}}, from, to)
-}
-
-func (s *Service) Totals(ctx context.Context, userID string, req QueryRequest, from, to string) (Summary, error) {
+func (s *Service) totals(ctx context.Context, req QueryRequest, userID, from, to string) (Summary, error) {
 	where, args, err := s.where(req, userID, from, to)
 	if err != nil {
 		return Summary{}, err
 	}
-	query := fmt.Sprintf("SELECT sum(impressions), sum(clicks), sum(spent), if(sum(impressions)=0, 0, round(sum(clicks)/sum(impressions)*100, 2)) FROM %s WHERE %s", s.table, where)
+
+	query := fmt.Sprintf(`
+SELECT
+    toUInt64(sum(impressions)) AS impressions,
+    toUInt64(sum(clicks)) AS clicks,
+    %s AS spent,
+    round(if(sum(impressions) = 0, 0, sum(clicks) * 100.0 / sum(impressions)), 2) AS ctr
+FROM %s
+WHERE %s`, spentExpression, s.table, where)
+
 	var res Summary
 	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&res.Impressions, &res.Clicks, &res.Spent, &res.CTR); err != nil {
 		return Summary{}, err
@@ -154,12 +182,33 @@ func (s *Service) Totals(ctx context.Context, userID string, req QueryRequest, f
 }
 
 func (s *Service) where(req QueryRequest, userID, from, to string) (string, []any, error) {
-	parts := []string{"user_id = ?", "date >= toDate(?)", "date <= toDate(?)"}
-	args := []any{userID, from, to}
-	if len(req.CampaignIDs) > 0 {
-		parts = append(parts, "campaign_id IN ?")
-		args = append(args, req.CampaignIDs)
+	if err := validateUUID(userID, "user_id"); err != nil {
+		return "", nil, err
 	}
+	if err := validateUUIDList(req.CampaignIDs, "campaign_ids"); err != nil {
+		return "", nil, err
+	}
+	if err := validateUUIDList(req.CreativeIDs, "creative_ids"); err != nil {
+		return "", nil, err
+	}
+
+	parts := []string{"user_id = toUUID(?)", "event_date BETWEEN toDate(?) AND toDate(?)"}
+	args := []any{userID, from, to}
+
+	if len(req.CampaignIDs) > 0 {
+		parts = append(parts, "campaign_id IN ("+uuidPlaceholders(len(req.CampaignIDs))+")")
+		for _, id := range req.CampaignIDs {
+			args = append(args, id)
+		}
+	}
+
+	if len(req.CreativeIDs) > 0 {
+		parts = append(parts, "creative_id IN ("+uuidPlaceholders(len(req.CreativeIDs))+")")
+		for _, id := range req.CreativeIDs {
+			args = append(args, id)
+		}
+	}
+
 	for key, values := range req.Filters {
 		if len(values) == 0 {
 			continue
@@ -168,20 +217,75 @@ func (s *Service) where(req QueryRequest, userID, from, to string) (string, []an
 		if !ok {
 			return "", nil, httpx.BadRequest("invalid filter: " + key)
 		}
-		parts = append(parts, fmt.Sprintf("%s IN ?", col))
-		args = append(args, values)
+		parts = append(parts, fmt.Sprintf("%s IN (%s)", col, valuePlaceholders(len(values))))
+		for _, value := range values {
+			args = append(args, value)
+		}
 	}
+
 	return strings.Join(parts, " AND "), args, nil
 }
 
-func normalizeDates(from, to string) (string, string) {
+func normalizeDates(from, to string) (string, string, error) {
 	if from == "" {
-		from = time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+		from = time.Now().UTC().AddDate(0, -1, 0).Format("2006-01-02")
 	}
 	if to == "" {
-		to = time.Now().Format("2006-01-02")
+		to = time.Now().UTC().Format("2006-01-02")
 	}
-	return from, to
+
+	fromDate, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return "", "", httpx.BadRequest("invalid from date, expected YYYY-MM-DD")
+	}
+	toDate, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		return "", "", httpx.BadRequest("invalid to date, expected YYYY-MM-DD")
+	}
+	if fromDate.After(toDate) {
+		return "", "", httpx.BadRequest("from must be <= to")
+	}
+
+	return from, to, nil
+}
+
+func validateUUID(value, field string) error {
+	if _, err := uuid.Parse(value); err != nil {
+		return httpx.BadRequest("invalid " + field)
+	}
+	return nil
+}
+
+func validateUUIDList(values []string, field string) error {
+	for _, value := range values {
+		if err := validateUUID(value, field); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func uuidPlaceholders(n int) string {
+	items := make([]string, n)
+	for i := range items {
+		items[i] = "toUUID(?)"
+	}
+	return strings.Join(items, ",")
+}
+
+func valuePlaceholders(n int) string {
+	items := make([]string, n)
+	for i := range items {
+		items[i] = "?"
+	}
+	return strings.Join(items, ",")
+}
+
+func buildOrderBy(spec groupSpec) string {
+	if spec.orderExpr == "" {
+		return ""
+	}
+	return "ORDER BY " + spec.orderExpr
 }
 
 func buildDSN(cfg config.ClickHouseConfig) string {
@@ -189,8 +293,10 @@ func buildDSN(cfg config.ClickHouseConfig) string {
 	if cfg.Username != "" {
 		u.User = url.UserPassword(cfg.Username, cfg.Password)
 	}
+
 	q := u.Query()
 	q.Set("secure", fmt.Sprintf("%t", cfg.Secure))
 	u.RawQuery = q.Encode()
+
 	return u.String()
 }
