@@ -1,17 +1,26 @@
 package stats
 
 import (
+	"context"
 	"net/http"
 
 	"twinbid-backend/internal/auth"
 	"twinbid-backend/internal/httpx"
 )
 
-type Handler struct{ svc *Service }
+type queryService interface {
+	Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error)
+}
 
-func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
+type Handler struct {
+	svc queryService
+}
 
-// Query handles only one endpoint: POST /api/stats/query.
+func NewHandler(svc queryService) *Handler {
+	return &Handler{svc: svc}
+}
+
+// Query handles the only stats endpoint: POST /api/stats/query.
 func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 	var req QueryRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {

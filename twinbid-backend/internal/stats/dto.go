@@ -1,6 +1,6 @@
 package stats
 
-// GroupBy is a single grouping selected by frontend.
+// GroupBy is a single grouping selected by the frontend.
 type GroupBy string
 
 const (
