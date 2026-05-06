@@ -50,11 +50,11 @@ type SMTPConfig struct {
 
 type ClickHouseConfig struct {
 	Addr     string `env:"CLICKHOUSE_ADDR" env-default:"localhost:9000"`
-	Database string `env:"CLICKHOUSE_DATABASE" env-default:"twinbid"`
+	Database string `env:"CLICKHOUSE_DATABASE" env-default:"ads"`
 	Username string `env:"CLICKHOUSE_USERNAME" env-default:"default"`
 	Password string `env:"CLICKHOUSE_PASSWORD" env-default:""`
 	Secure   bool   `env:"CLICKHOUSE_SECURE" env-default:"false"`
-	Table    string `env:"CLICKHOUSE_STATS_TABLE" env-default:"campaign_stats"`
+	Table    string `env:"CLICKHOUSE_STATS_TABLE" env-default:"agg_stats"`
 }
 
 type BotConfig struct {
