@@ -68,15 +68,21 @@ var filterColumns = map[string]string{
 	string(FilterByDeviceType): "device_type",
 }
 
+const impressionsExpression = "toUInt64(ifNull(sum(impressions), 0))"
+const clicksExpression = "toUInt64(ifNull(sum(clicks), 0))"
+
 // Spent formula for the single endpoint /api/stats/query.
 // It assumes that ads.agg_stats has the future `format` column and that the MV groups by it.
 const spentExpression = `round(
-    sum(
-        multiIf(
-            lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table,
-            lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table,
-            0
-        )
+    ifNull(
+        sum(
+            multiIf(
+                lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table,
+                lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table,
+                0
+            )
+        ),
+        0
     ),
     2
 )`
@@ -106,44 +112,53 @@ func buildStatsQueries(userID string, req QueryRequest, table string) (sqlPlan, 
 		return sqlPlan{}, sqlPlan{}, err
 	}
 
-	const impressionsExpression = "toUInt64(ifNull(sum(impressions), 0))"
-	const clicksExpression = "toUInt64(ifNull(sum(clicks), 0))"
-	const ctrExpression = "round(if(ifNull(sum(impressions), 0) = 0, 0, ifNull(sum(clicks), 0) * 100.0 / ifNull(sum(impressions), 0)), 2)"
-
 	rowsSQL := fmt.Sprintf(`
 SELECT
-    %s AS bucket,
-    %s AS impressions,
-    %s AS clicks,
-    %s AS spent,
-    %s AS ctr
-FROM %s
-WHERE %s
-GROUP BY %s
+    bucket,
+    impressions,
+    clicks,
+    spent,
+    round(if(impressions = 0, 0, clicks * 100.0 / impressions), 2) AS ctr
+FROM
+(
+    SELECT
+        %s AS bucket,
+        %s AS impressions,
+        %s AS clicks,
+        %s AS spent
+    FROM %s
+    WHERE %s
+    GROUP BY %s
+)
 %s`,
 		spec.selectExpr,
 		impressionsExpression,
 		clicksExpression,
 		spentExpression,
-		ctrExpression,
 		table,
 		where,
 		spec.groupExpr,
-		buildOrderBy(spec),
+		buildBucketOrderBy(spec),
 	)
 
 	totalsSQL := fmt.Sprintf(`
 SELECT
-    %s AS impressions,
-    %s AS clicks,
-    %s AS spent,
-    %s AS ctr
-FROM %s
-WHERE %s`,
+    impressions,
+    clicks,
+    spent,
+    round(if(impressions = 0, 0, clicks * 100.0 / impressions), 2) AS ctr
+FROM
+(
+    SELECT
+        %s AS impressions,
+        %s AS clicks,
+        %s AS spent
+    FROM %s
+    WHERE %s
+)`,
 		impressionsExpression,
 		clicksExpression,
 		spentExpression,
-		ctrExpression,
 		table,
 		where,
 	)
@@ -264,9 +279,9 @@ func valuePlaceholders(n int) string {
 	return strings.Join(items, ",")
 }
 
-func buildOrderBy(spec groupSpec) string {
+func buildBucketOrderBy(spec groupSpec) string {
 	if spec.orderExpr == "" {
 		return ""
 	}
-	return "ORDER BY " + spec.orderExpr
+	return "ORDER BY bucket"
 }

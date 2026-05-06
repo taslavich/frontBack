@@ -40,7 +40,7 @@ func TestBuildStatsQueriesHourWithFilters(t *testing.T) {
 	mustContain(t, rowsPlan.SQL, "os IN (?)")
 	mustContain(t, rowsPlan.SQL, "device_type IN (?)")
 	mustContain(t, rowsPlan.SQL, "GROUP BY toStartOfHour(event_hour)")
-	mustContain(t, rowsPlan.SQL, "ORDER BY toStartOfHour(event_hour)")
+	mustContain(t, rowsPlan.SQL, "ORDER BY bucket")
 	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table")
 	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table")
 
@@ -81,7 +81,7 @@ func TestBuildStatsQueriesDateHasOrderByDate(t *testing.T) {
 
 	mustContain(t, rowsPlan.SQL, "toString(event_date) AS bucket")
 	mustContain(t, rowsPlan.SQL, "GROUP BY event_date")
-	mustContain(t, rowsPlan.SQL, "ORDER BY event_date")
+	mustContain(t, rowsPlan.SQL, "ORDER BY bucket")
 }
 
 func TestBuildStatsQueriesInvalidGroupBy(t *testing.T) {
