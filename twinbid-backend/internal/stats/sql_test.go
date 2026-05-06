@@ -38,7 +38,7 @@ func TestBuildStatsQueriesHourWithFilters(t *testing.T) {
 	mustContain(t, rowsPlan.SQL, "creative_id IN (toUUID(?))")
 	mustContain(t, rowsPlan.SQL, "geo IN (?,?)")
 	mustContain(t, rowsPlan.SQL, "os IN (?)")
-	mustContain(t, rowsPlan.SQL, "device_type IN (?)")
+	mustContain(t, rowsPlan.SQL, "lowerUTF8(device_type) IN (?)")
 	mustContain(t, rowsPlan.SQL, "GROUP BY toStartOfHour(event_hour)")
 	mustContain(t, rowsPlan.SQL, "ORDER BY bucket")
 	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table")
