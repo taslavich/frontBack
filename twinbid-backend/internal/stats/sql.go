@@ -206,6 +206,9 @@ func buildWhere(req QueryRequest, userID, from, to string) (string, []any, error
 
 		parts = append(parts, fmt.Sprintf("%s IN (%s)", col, valuePlaceholders(len(values))))
 		for _, value := range values {
+			if key == string(FilterByDeviceType) {
+				value = strings.ToLower(value)
+			}
 			args = append(args, value)
 		}
 	}
