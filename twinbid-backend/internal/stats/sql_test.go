@@ -41,9 +41,8 @@ func TestBuildStatsQueriesHourWithFilters(t *testing.T) {
 	mustContain(t, rowsPlan.SQL, "device_type IN (?)")
 	mustContain(t, rowsPlan.SQL, "GROUP BY toStartOfHour(event_hour)")
 	mustContain(t, rowsPlan.SQL, "ORDER BY toStartOfHour(event_hour)")
-	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('banner', 'native'), spend_views_table / 1000")
-	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) = 'ipp', spend_clicks_table")
-	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) = 'popunder', spend_clicks_table / 1000")
+	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table")
+	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table")
 
 	if len(rowsPlan.Args) != 9 {
 		t.Fatalf("expected 9 args, got %d: %#v", len(rowsPlan.Args), rowsPlan.Args)

@@ -73,9 +73,8 @@ var filterColumns = map[string]string{
 const spentExpression = `round(
     sum(
         multiIf(
-            lowerUTF8(ifNull(format, '')) IN ('banner', 'native'), spend_views_table / 1000,
-            lowerUTF8(ifNull(format, '')) = 'ipp', spend_clicks_table,
-            lowerUTF8(ifNull(format, '')) = 'popunder', spend_clicks_table / 1000,
+            lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table,
+            lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table,
             0
         )
     ),
@@ -107,26 +106,47 @@ func buildStatsQueries(userID string, req QueryRequest, table string) (sqlPlan, 
 		return sqlPlan{}, sqlPlan{}, err
 	}
 
+	const impressionsExpression = "toUInt64(ifNull(sum(impressions), 0))"
+	const clicksExpression = "toUInt64(ifNull(sum(clicks), 0))"
+	const ctrExpression = "round(if(ifNull(sum(impressions), 0) = 0, 0, ifNull(sum(clicks), 0) * 100.0 / ifNull(sum(impressions), 0)), 2)"
+
 	rowsSQL := fmt.Sprintf(`
 SELECT
     %s AS bucket,
-    toUInt64(sum(impressions)) AS impressions,
-    toUInt64(sum(clicks)) AS clicks,
+    %s AS impressions,
+    %s AS clicks,
     %s AS spent,
-    round(if(sum(impressions) = 0, 0, sum(clicks) * 100.0 / sum(impressions)), 2) AS ctr
+    %s AS ctr
 FROM %s
 WHERE %s
 GROUP BY %s
-%s`, spec.selectExpr, spentExpression, table, where, spec.groupExpr, buildOrderBy(spec))
+%s`,
+		spec.selectExpr,
+		impressionsExpression,
+		clicksExpression,
+		spentExpression,
+		ctrExpression,
+		table,
+		where,
+		spec.groupExpr,
+		buildOrderBy(spec),
+	)
 
 	totalsSQL := fmt.Sprintf(`
 SELECT
-    toUInt64(sum(impressions)) AS impressions,
-    toUInt64(sum(clicks)) AS clicks,
+    %s AS impressions,
+    %s AS clicks,
     %s AS spent,
-    round(if(sum(impressions) = 0, 0, sum(clicks) * 100.0 / sum(impressions)), 2) AS ctr
+    %s AS ctr
 FROM %s
-WHERE %s`, spentExpression, table, where)
+WHERE %s`,
+		impressionsExpression,
+		clicksExpression,
+		spentExpression,
+		ctrExpression,
+		table,
+		where,
+	)
 
 	return sqlPlan{SQL: rowsSQL, Args: args}, sqlPlan{SQL: totalsSQL, Args: append([]any(nil), args...)}, nil
 }
