@@ -84,7 +84,7 @@ const spentExpression = `round(
         ),
         0
     ),
-    2
+    4
 )`
 
 func buildStatsQueries(userID string, req QueryRequest, table string) (sqlPlan, sqlPlan, error) {
