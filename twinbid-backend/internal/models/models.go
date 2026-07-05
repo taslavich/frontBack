@@ -4,6 +4,18 @@ import "time"
 
 type TargetingMap map[string]int
 
+type TargetingFilter struct {
+	IsWhiteList bool     `json:"isWhiteList"`
+	Objects     []string `json:"objects"`
+}
+
+func NormalizeTargetingFilter(v TargetingFilter) TargetingFilter {
+	if v.Objects == nil {
+		v.Objects = []string{}
+	}
+	return v
+}
+
 type ScheduleInterval [2]string
 
 type User struct {
@@ -44,13 +56,13 @@ type Campaign struct {
 	StartTS            time.Time          `json:"start_ts"`
 	EndTS              time.Time          `json:"end_ts"`
 	ActiveIntervals    []ScheduleInterval `json:"active_intervals"`
-	Country            TargetingMap       `json:"country"`
-	Language           TargetingMap       `json:"language"`
-	DeviceType         TargetingMap       `json:"device_type"`
-	OS                 TargetingMap       `json:"os"`
-	Browser            TargetingMap       `json:"browser"`
-	SiteID             TargetingMap       `json:"site_id"`
-	IP                 TargetingMap       `json:"ip"`
+	Country            TargetingFilter    `json:"country"`
+	Language           TargetingFilter    `json:"language"`
+	DeviceType         TargetingFilter    `json:"device_type"`
+	OS                 TargetingFilter    `json:"os"`
+	Browser            TargetingFilter    `json:"browser"`
+	SiteID             TargetingFilter    `json:"site_id"`
+	IP                 TargetingFilter    `json:"ip"`
 	QualityType        string             `json:"quality_type"`
 }
 

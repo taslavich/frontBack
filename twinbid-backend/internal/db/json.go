@@ -16,17 +16,33 @@ func JSONValue(v any) (driver.Value, error) {
 	return string(b), nil
 }
 
+func UnmarshalTargetingFilter(raw []byte) (models.TargetingFilter, error) {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return models.NormalizeTargetingFilter(models.TargetingFilter{}), nil
+	}
+
+	var out models.TargetingFilter
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return models.TargetingFilter{}, fmt.Errorf("targeting filter json: %w", err)
+	}
+
+	return models.NormalizeTargetingFilter(out), nil
+}
+
 func UnmarshalTargeting(raw []byte) (models.TargetingMap, error) {
-	if len(raw) == 0 {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
 		return models.TargetingMap{}, nil
 	}
+
 	var out models.TargetingMap
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("targeting json: %w", err)
 	}
+
 	if out == nil {
 		out = models.TargetingMap{}
 	}
+
 	return out, nil
 }
 

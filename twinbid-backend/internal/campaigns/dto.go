@@ -23,13 +23,13 @@ type UpsertCampaignRequest struct {
 	StartTS            time.Time                 `json:"start_ts"`
 	EndTS              time.Time                 `json:"end_ts"`
 	ActiveIntervals    []models.ScheduleInterval `json:"active_intervals"`
-	Country            models.TargetingMap       `json:"country"`
-	Language           models.TargetingMap       `json:"language"`
-	DeviceType         models.TargetingMap       `json:"device_type"`
-	OS                 models.TargetingMap       `json:"os"`
-	Browser            models.TargetingMap       `json:"browser"`
-	SiteID             models.TargetingMap       `json:"site_id"`
-	IP                 models.TargetingMap       `json:"ip"`
+	Country            models.TargetingFilter    `json:"country"`
+	Language           models.TargetingFilter    `json:"language"`
+	DeviceType         models.TargetingFilter    `json:"device_type"`
+	OS                 models.TargetingFilter    `json:"os"`
+	Browser            models.TargetingFilter    `json:"browser"`
+	SiteID             models.TargetingFilter    `json:"site_id"`
+	IP                 models.TargetingFilter    `json:"ip"`
 	QualityType        string                    `json:"quality_type"`
 }
 
@@ -53,13 +53,13 @@ type PatchCampaignRequest struct {
 	StartTS            *time.Time                 `json:"start_ts"`
 	EndTS              *time.Time                 `json:"end_ts"`
 	ActiveIntervals    *[]models.ScheduleInterval `json:"active_intervals"`
-	Country            *models.TargetingMap       `json:"country"`
-	Language           *models.TargetingMap       `json:"language"`
-	DeviceType         *models.TargetingMap       `json:"device_type"`
-	OS                 *models.TargetingMap       `json:"os"`
-	Browser            *models.TargetingMap       `json:"browser"`
-	SiteID             *models.TargetingMap       `json:"site_id"`
-	IP                 *models.TargetingMap       `json:"ip"`
+	Country            *models.TargetingFilter    `json:"country"`
+	Language           *models.TargetingFilter    `json:"language"`
+	DeviceType         *models.TargetingFilter    `json:"device_type"`
+	OS                 *models.TargetingFilter    `json:"os"`
+	Browser            *models.TargetingFilter    `json:"browser"`
+	SiteID             *models.TargetingFilter    `json:"site_id"`
+	IP                 *models.TargetingFilter    `json:"ip"`
 	QualityType        *string                    `json:"quality_type"`
 	NoBudgetNotified   *bool                      `json:"no_budget_notified"`
 }

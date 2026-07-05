@@ -142,31 +142,37 @@ func scanCampaign(s scanner) (models.Campaign, error) {
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.Country, err = db.UnmarshalTargeting(countryRaw)
+	c.Country, err = db.UnmarshalTargetingFilter(countryRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.Language, err = db.UnmarshalTargeting(languageRaw)
+
+	c.Language, err = db.UnmarshalTargetingFilter(languageRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.DeviceType, err = db.UnmarshalTargeting(deviceRaw)
+
+	c.DeviceType, err = db.UnmarshalTargetingFilter(deviceRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.OS, err = db.UnmarshalTargeting(osRaw)
+
+	c.OS, err = db.UnmarshalTargetingFilter(osRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.Browser, err = db.UnmarshalTargeting(browserRaw)
+
+	c.Browser, err = db.UnmarshalTargetingFilter(browserRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.SiteID, err = db.UnmarshalTargeting(siteRaw)
+
+	c.SiteID, err = db.UnmarshalTargetingFilter(siteRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}
-	c.IP, err = db.UnmarshalTargeting(ipRaw)
+
+	c.IP, err = db.UnmarshalTargetingFilter(ipRaw)
 	if err != nil {
 		return models.Campaign{}, err
 	}

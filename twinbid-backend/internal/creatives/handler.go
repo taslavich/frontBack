@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
 	"twinbid-backend/internal/auth"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct{ svc *Service }

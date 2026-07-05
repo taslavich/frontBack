@@ -71,7 +71,7 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		W:                  req.W,
 		Status:             status,
 		TrafficType:        req.TrafficType,
-		Vertical:           nonNilMap(req.Vertical),
+		Vertical:           req.Vertical,
 		PricingModel:       req.PricingModel,
 		BasePrice:          req.BasePrice,
 		EvennessBySlotMode: req.EvennessBySlotMode,
@@ -80,13 +80,13 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		StartTS:            req.StartTS,
 		EndTS:              req.EndTS,
 		ActiveIntervals:    nonNilIntervals(req.ActiveIntervals),
-		Country:            nonNilMap(req.Country),
-		Language:           nonNilMap(req.Language),
-		DeviceType:         nonNilMap(req.DeviceType),
-		OS:                 nonNilMap(req.OS),
-		Browser:            nonNilMap(req.Browser),
-		SiteID:             nonNilMap(req.SiteID),
-		IP:                 nonNilMap(req.IP),
+		Country:            models.NormalizeTargetingFilter(req.Country),
+		Language:           models.NormalizeTargetingFilter(req.Language),
+		DeviceType:         models.NormalizeTargetingFilter(req.DeviceType),
+		OS:                 models.NormalizeTargetingFilter(req.OS),
+		Browser:            models.NormalizeTargetingFilter(req.Browser),
+		SiteID:             models.NormalizeTargetingFilter(req.SiteID),
+		IP:                 models.NormalizeTargetingFilter(req.IP),
 	}
 	if c.StartTS.IsZero() {
 		c.StartTS = time.Now().UTC()
@@ -143,7 +143,7 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 		current.TrafficType = *req.TrafficType
 	}
 	if req.Vertical != nil {
-		current.Vertical = nonNilMap(*req.Vertical)
+		current.Vertical = *req.Vertical
 	}
 	if req.PricingModel != nil {
 		current.PricingModel = *req.PricingModel
@@ -173,25 +173,25 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 		current.ActiveIntervals = *req.ActiveIntervals
 	}
 	if req.Country != nil {
-		current.Country = *req.Country
+		current.Country = models.NormalizeTargetingFilter(*req.Country)
 	}
 	if req.Language != nil {
-		current.Language = *req.Language
+		current.Language = models.NormalizeTargetingFilter(*req.Language)
 	}
 	if req.DeviceType != nil {
-		current.DeviceType = *req.DeviceType
+		current.DeviceType = models.NormalizeTargetingFilter(*req.DeviceType)
 	}
 	if req.OS != nil {
-		current.OS = *req.OS
+		current.OS = models.NormalizeTargetingFilter(*req.OS)
 	}
 	if req.Browser != nil {
-		current.Browser = *req.Browser
+		current.Browser = models.NormalizeTargetingFilter(*req.Browser)
 	}
 	if req.SiteID != nil {
-		current.SiteID = *req.SiteID
+		current.SiteID = models.NormalizeTargetingFilter(*req.SiteID)
 	}
 	if req.IP != nil {
-		current.IP = *req.IP
+		current.IP = models.NormalizeTargetingFilter(*req.IP)
 	}
 	if req.NoBudgetNotified != nil {
 		current.NoBudgetNotified = *req.NoBudgetNotified
@@ -374,9 +374,9 @@ func valueOr(v, def string) string {
 	}
 	return v
 }
-func nonNilMap(v models.TargetingMap) models.TargetingMap {
+func nonNilMap(v *models.TargetingFilter) *models.TargetingFilter {
 	if v == nil {
-		return models.TargetingMap{}
+		return &models.TargetingFilter{}
 	}
 	return v
 }
