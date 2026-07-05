@@ -7,23 +7,24 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/lib/pq"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
+
+	"github.com/lib/pq"
 )
 
 type Repository struct{ db *sql.DB }
 
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
-func (r *Repository) CreateUser(ctx context.Context, email, password, fullName, managerTelegram string) (models.User, error) {
+func (r *Repository) CreateUser(ctx context.Context, email, password, fullName, managerTelegram, utmSource string) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO users (login, mail, name, manager_telegram, password, verified)
-		VALUES ($1, $1, $2, $3, $4, false)
+		INSERT INTO users (login, mail, name, manager_telegram, password, verified, utm_source)
+		VALUES ($1, $1, $2, $3, $4, false, $5)
 		RETURNING id, login, mail, name, telegram, manager_telegram, balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
 			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
-	`, email, fullName, managerTelegram, password)
+	`, email, fullName, managerTelegram, password, utmSource)
 	u, err := scanUser(row)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {

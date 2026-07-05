@@ -44,6 +44,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			low_balance_notified BOOLEAN NOT NULL DEFAULT true,
 			verified BOOLEAN NOT NULL DEFAULT false,
 			password TEXT NOT NULL,
+			utm_source TEXT,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
@@ -71,8 +72,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			traffic_type TEXT NOT NULL,
 			vertical JSONB NOT NULL DEFAULT '{}'::jsonb,
 			pricing_model TEXT NOT NULL,
-			base_price_cpm DECIMAL(12,4) NOT NULL DEFAULT 0,
-			base_price_cpc DECIMAL(12,4) NOT NULL DEFAULT 0,
+			base_price DECIMAL(12,4) NOT NULL DEFAULT 0,
 			evenness_by_slot_mode BOOLEAN NOT NULL DEFAULT false,
 			goal_total_dollars DECIMAL(12,2) NOT NULL DEFAULT 0,
 			cum_done_dollars DECIMAL(12,2) NOT NULL DEFAULT 0,

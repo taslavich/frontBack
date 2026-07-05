@@ -73,8 +73,7 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		TrafficType:        req.TrafficType,
 		Vertical:           nonNilMap(req.Vertical),
 		PricingModel:       req.PricingModel,
-		BasePriceCPM:       req.BasePriceCPM,
-		BasePriceCPC:       req.BasePriceCPC,
+		BasePrice:          req.BasePrice,
 		EvennessBySlotMode: req.EvennessBySlotMode,
 		GoalTotalDollars:   req.GoalTotalDollars,
 		CumDoneDollars:     0,
@@ -149,11 +148,8 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	if req.PricingModel != nil {
 		current.PricingModel = *req.PricingModel
 	}
-	if req.BasePriceCPM != nil {
-		current.BasePriceCPM = *req.BasePriceCPM
-	}
-	if req.BasePriceCPC != nil {
-		current.BasePriceCPC = *req.BasePriceCPC
+	if req.BasePrice != nil {
+		current.BasePrice = *req.BasePrice
 	}
 	if req.EvennessBySlotMode != nil {
 		current.EvennessBySlotMode = *req.EvennessBySlotMode

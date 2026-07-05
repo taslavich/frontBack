@@ -32,11 +32,11 @@ type AuthTokens struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func (s *Service) Signup(ctx context.Context, email, password, fullName, managerTelegram string) (AuthResponse, error) {
+func (s *Service) Signup(ctx context.Context, email, password, fullName, managerTelegram, utmSource string) (AuthResponse, error) {
 	if email == "" || password == "" || managerTelegram == "" {
 		return AuthResponse{}, httpx.BadRequest("email, password and manager_telegram are required")
 	}
-	u, err := s.repo.CreateUser(ctx, email, password, fullName, managerTelegram)
+	u, err := s.repo.CreateUser(ctx, email, password, fullName, managerTelegram, utmSource)
 	if err != nil {
 		return AuthResponse{}, err
 	}

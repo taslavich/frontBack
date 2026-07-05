@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
@@ -18,6 +19,22 @@ type Config struct {
 	S3            S3Config
 	Notifications NotificationsConfig
 	Bot           BotConfig
+
+	// POP
+	SspPopAdlFeeds MapStringToString `yaml:"SSP_POP_ADL_FEEDS" env:"SSP_POP_ADL_FEEDS"`
+	SspPopMcFeeds  MapStringToString `yaml:"SSP_POP_MC_FEEDS" env:"SSP_POP_MC_FEEDS"`
+
+	// BAN
+	SspBanAdlFeeds MapStringToString `yaml:"SSP_BAN_ADL_FEEDS" env:"SSP_BAN_ADL_FEEDS"`
+	SspBanMcFeeds  MapStringToString `yaml:"SSP_BAN_MC_FEEDS" env:"SSP_BAN_MC_FEEDS"`
+
+	// NAT
+	SspNatAdlFeeds MapStringToString `yaml:"SSP_NAT_ADL_FEEDS" env:"SSP_NAT_ADL_FEEDS"`
+	SspNatMcFeeds  MapStringToString `yaml:"SSP_NAT_MC_FEEDS" env:"SSP_NAT_MC_FEEDS"`
+
+	// IPP
+	SspIppAdlFeeds MapStringToString `yaml:"SSP_IPP_ADL_FEEDS" env:"SSP_IPP_ADL_FEEDS"`
+	SspIppMcFeeds  MapStringToString `yaml:"SSP_IPP_MC_FEEDS" env:"SSP_IPP_MC_FEEDS"`
 }
 
 type HTTPConfig struct {
@@ -70,6 +87,30 @@ type S3Config struct {
 	SecretKey    string        `env:"AWS_SECRET_ACCESS_KEY" env-default:"minioadmin"`
 	UsePathStyle bool          `env:"S3_USE_PATH_STYLE" env-default:"true"`
 	PresignTTL   time.Duration `env:"S3_PRESIGN_TTL" env-default:"15m"`
+}
+
+// Кастомный тип для map[string]string
+type MapStringToString map[string]string
+
+func (m *MapStringToString) SetValue(value string) error {
+	*m = make(MapStringToString)
+	if value == "" {
+		return nil
+	}
+
+	pairs := strings.Split(value, ",")
+	for _, pair := range pairs {
+		// Ищем только ПЕРВЫЙ знак | как разделитель ключ-значение
+		idx := strings.Index(pair, "|")
+		if idx == -1 {
+			continue // пропускаем некорректные пары
+		}
+
+		key := strings.TrimSpace(pair[:idx])
+		valueStr := strings.TrimSpace(pair[idx+1:])
+		(*m)[key] = valueStr
+	}
+	return nil
 }
 
 func getEnvFileNames() []string {

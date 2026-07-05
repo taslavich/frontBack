@@ -36,8 +36,7 @@ type Campaign struct {
 	TrafficType        string             `json:"traffic_type"`
 	Vertical           TargetingMap       `json:"vertical"`
 	PricingModel       string             `json:"pricing_model"`
-	BasePriceCPM       float64            `json:"base_price_cpm"`
-	BasePriceCPC       float64            `json:"base_price_cpc"`
+	BasePrice          float64            `json:"base_price"`
 	EvennessBySlotMode bool               `json:"evenness_by_slot_mode"`
 	GoalTotalDollars   float64            `json:"goal_total_dollars"`
 	CumDoneDollars     float64            `json:"cum_done_dollars"`
