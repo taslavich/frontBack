@@ -14,6 +14,7 @@ type signupRequest struct {
 	Email           string `json:"email"`
 	Password        string `json:"password"`
 	FullName        string `json:"full_name"`
+	Telegram        string `json:"telegram"`
 	ManagerTelegram string `json:"manager_telegram"`
 	UTMSource       string `json:"utm_source"`
 }
@@ -45,7 +46,15 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, err)
 		return
 	}
-	res, err := h.svc.Signup(r.Context(), req.Email, req.Password, req.FullName, req.ManagerTelegram, req.UTMSource)
+	res, err := h.svc.Signup(
+		r.Context(),
+		req.Email,
+		req.Password,
+		req.FullName,
+		req.Telegram,
+		req.ManagerTelegram,
+		req.UTMSource,
+	)
 	if err != nil {
 		httpx.Error(w, err)
 		return
