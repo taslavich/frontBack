@@ -81,7 +81,7 @@ func parseCreativeForm(r *http.Request) (FormCreativeRequest, multipart.File, *m
 			return req, nil, nil, "", httpx.BadRequest("invalid trackers_macros")
 		}
 	} else {
-		req.TrackersMacros = models.TargetingMap{}
+		req.TrackersMacros = models.MacroMap{}
 	}
 	if raw := first(form.Value, "w"); raw != "" {
 		n, err := strconv.Atoi(raw)

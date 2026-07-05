@@ -16,6 +16,32 @@ func JSONValue(v any) (driver.Value, error) {
 	return string(b), nil
 }
 
+func UnmarshalMacroMap(raw []byte) (models.MacroMap, error) {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return models.MacroMap{}, nil
+	}
+
+	var boolMap models.MacroMap
+	if err := json.Unmarshal(raw, &boolMap); err == nil {
+		if boolMap == nil {
+			boolMap = models.MacroMap{}
+		}
+		return boolMap, nil
+	}
+
+	var intMap models.TargetingMap
+	if err := json.Unmarshal(raw, &intMap); err != nil {
+		return nil, fmt.Errorf("macro map json: %w", err)
+	}
+
+	out := make(models.MacroMap, len(intMap))
+	for key, value := range intMap {
+		out[key] = value != 0
+	}
+
+	return out, nil
+}
+
 func UnmarshalTargetingFilter(raw []byte) (models.TargetingFilter, error) {
 	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
 		return models.NormalizeTargetingFilter(models.TargetingFilter{}), nil

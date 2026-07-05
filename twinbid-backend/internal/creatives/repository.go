@@ -117,7 +117,7 @@ func scanCreative(s scanner) (models.Creative, error) {
 	if err != nil {
 		return models.Creative{}, err
 	}
-	cr.TrackersMacros, err = db.UnmarshalTargeting(raw)
+	cr.TrackersMacros, err = db.UnmarshalMacroMap(raw)
 	if err != nil {
 		return models.Creative{}, err
 	}

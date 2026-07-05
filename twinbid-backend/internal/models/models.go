@@ -3,6 +3,7 @@ package models
 import "time"
 
 type TargetingMap map[string]int
+type MacroMap map[string]bool
 
 type TargetingFilter struct {
 	IsWhiteList bool     `json:"isWhiteList"`
@@ -67,20 +68,21 @@ type Campaign struct {
 }
 
 type Creative struct {
-	ID             string       `json:"id"`
-	CampaignID     string       `json:"campaign_id"`
-	CreativeName   string       `json:"creative_name"`
-	Link           string       `json:"link"`
-	TrackersMacros TargetingMap `json:"trackers_macros"`
-	W              *int         `json:"w,omitempty"`
-	H              *int         `json:"h,omitempty"`
-	Title          *string      `json:"title,omitempty"`
-	Description    *string      `json:"description,omitempty"`
-	Name           *string      `json:"name,omitempty"`
-	S3FilePath     *string      `json:"-"`
-	FileFormat     *string      `json:"-"`
-	PresignedS3URL *string      `json:"presigned_s3_url,omitempty"`
-	FormatType     string       `json:"-"`
+	ID             string   `json:"id"`
+	CampaignID     string   `json:"campaign_id"`
+	CreativeName   string   `json:"creative_name"`
+	Link           string   `json:"link"`
+	TrackersMacros MacroMap `json:"trackers_macros"`
+	Macros         MacroMap `json:"macros"`
+	W              *int     `json:"w,omitempty"`
+	H              *int     `json:"h,omitempty"`
+	Title          *string  `json:"title,omitempty"`
+	Description    *string  `json:"description,omitempty"`
+	Name           *string  `json:"name,omitempty"`
+	S3FilePath     *string  `json:"-"`
+	FileFormat     *string  `json:"-"`
+	PresignedS3URL *string  `json:"presigned_s3_url,omitempty"`
+	FormatType     string   `json:"-"`
 }
 
 type TopupStatus string

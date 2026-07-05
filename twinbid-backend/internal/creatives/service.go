@@ -40,7 +40,7 @@ func (s *Service) Create(ctx context.Context, userID, campaignID string, req For
 		return models.Creative{}, err
 	}
 	creativeID := uuid.NewString()
-	cr := models.Creative{ID: creativeID, CampaignID: campaignID, CreativeName: req.CreativeName, Link: req.Link, TrackersMacros: nonNilMap(req.TrackersMacros), W: req.W, H: req.H, Title: req.Title, Description: req.Description, FormatType: format}
+	cr := models.Creative{ID: creativeID, CampaignID: campaignID, CreativeName: req.CreativeName, Link: req.Link, TrackersMacros: nonNilMacroMap(req.TrackersMacros), W: req.W, H: req.H, Title: req.Title, Description: req.Description, FormatType: format}
 	if err := s.validate(format, cr, file, false); err != nil {
 		return models.Creative{}, err
 	}
@@ -76,7 +76,7 @@ func (s *Service) Patch(ctx context.Context, userID, creativeID string, req Form
 			current.Link = req.Link
 		}
 		if req.TrackersMacros != nil {
-			current.TrackersMacros = req.TrackersMacros
+			current.TrackersMacros = nonNilMacroMap(req.TrackersMacros)
 		}
 		if req.W != nil {
 			current.W = req.W
@@ -201,9 +201,9 @@ func (s *Service) withPresignedURL(ctx context.Context, cr models.Creative) (mod
 	return cr, nil
 }
 
-func nonNilMap(v models.TargetingMap) models.TargetingMap {
+func nonNilMacroMap(v models.MacroMap) models.MacroMap {
 	if v == nil {
-		return models.TargetingMap{}
+		return models.MacroMap{}
 	}
 	return v
 }
