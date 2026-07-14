@@ -84,12 +84,12 @@ func runLowBalanceNotifications(ctx context.Context, db *sql.DB, notifySvc *noti
 
 func getLowBalanceUsers(ctx context.Context, db *sql.DB) ([]models.User, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, mail, balance, balance_treshold
+		SELECT id, mail, (goal_total_dollars - cum_done_dollars) AS balance, balance_treshold
 		FROM users
 		WHERE low_balance_notifications = true
 		  AND low_balance_notified = false
 		  AND balance_treshold <> 0
-		  AND balance < balance_treshold
+		  AND (goal_total_dollars - cum_done_dollars) < balance_treshold
 		  AND mail <> ''
 	`)
 	if err != nil {

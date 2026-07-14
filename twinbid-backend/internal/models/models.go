@@ -27,6 +27,8 @@ type User struct {
 	Verified                     bool    `json:"-"`
 	Telegram                     *string `json:"telegram"`
 	ManagerTelegram              string  `json:"manager_telegram"`
+	GoalTotalDollars             float64 `json:"-"`
+	CumDoneDollars               float64 `json:"-"`
 	Balance                      float64 `json:"balance"`
 	Timezone                     string  `json:"timezone"`
 	EmailNotifications           bool    `json:"email_notifications"`

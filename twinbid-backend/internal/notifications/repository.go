@@ -20,7 +20,7 @@ func (r *Repository) EnsureAutomatic(ctx context.Context, userID string) error {
 		FROM users u
 		WHERE u.id=$1
 		  AND u.low_balance_notifications = true
-		  AND u.balance < u.balance_treshold
+		  AND (u.goal_total_dollars - u.cum_done_dollars) < u.balance_treshold
 		  AND NOT EXISTS (
 			SELECT 1 FROM notifications n WHERE n.user_id=u.id AND n.type='low_balance' AND n.status='active'
 		  )

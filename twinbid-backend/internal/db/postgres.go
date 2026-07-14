@@ -34,7 +34,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			name TEXT NOT NULL,
 			telegram TEXT,
 			manager_telegram TEXT NOT NULL,
-			balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+			goal_total_dollars DECIMAL(12,2) NOT NULL DEFAULT 0,
+			cum_done_dollars DECIMAL(12,2) NOT NULL DEFAULT 0,
 			timezone TEXT NOT NULL DEFAULT 'utc_3',
 			email_notifications BOOLEAN NOT NULL DEFAULT true,
 			campaign_status_notifications BOOLEAN NOT NULL DEFAULT true,
@@ -48,6 +49,20 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+		`DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'balance'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'goal_total_dollars'
+			) THEN
+				ALTER TABLE users RENAME COLUMN balance TO goal_total_dollars;
+			END IF;
+		END $$;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_total_dollars DECIMAL(12,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS cum_done_dollars DECIMAL(12,2) NOT NULL DEFAULT 0;`,
 		`CREATE TABLE IF NOT EXISTS refresh_tokens (
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			token TEXT PRIMARY KEY,

@@ -16,7 +16,20 @@ func (s *Service) Get(ctx context.Context, userID string) (models.User, error) {
 }
 
 func (s *Service) Patch(ctx context.Context, userID string, patch PatchProfileRequest) (models.User, error) {
-	return s.patch(ctx, nil, userID, patch)
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return models.User{}, err
+	}
+	defer tx.Rollback()
+
+	u, err := s.patch(ctx, tx, userID, patch)
+	if err != nil {
+		return models.User{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.User{}, err
+	}
+	return u, nil
 }
 
 func (s *Service) PatchTx(ctx context.Context, tx *sql.Tx, userID string, patch PatchProfileRequest) (models.User, error) {
@@ -24,16 +37,7 @@ func (s *Service) PatchTx(ctx context.Context, tx *sql.Tx, userID string, patch 
 }
 
 func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch PatchProfileRequest) (models.User, error) {
-	var (
-		u   models.User
-		err error
-	)
-
-	if tx != nil {
-		u, err = s.repo.GetTx(ctx, tx, userID)
-	} else {
-		u, err = s.repo.Get(ctx, userID)
-	}
+	u, err := s.repo.GetTx(ctx, tx, userID)
 	if err != nil {
 		return models.User{}, err
 	}
@@ -53,8 +57,12 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 	if patch.ManagerTelegram != nil {
 		u.ManagerTelegram = *patch.ManagerTelegram
 	}
-	if patch.Balance != nil {
-		u.Balance = u.Balance + *patch.Balance
+	if patch.BalanceDelta != nil {
+		// Backward-compatible API semantics: "balance" is an additive adjustment.
+		// After splitting the accounting fields, adjustments/topups increase only
+		// goal_total_dollars. cum_done_dollars is written by the spending pipeline.
+		u.GoalTotalDollars += *patch.BalanceDelta
+		u.Balance = u.GoalTotalDollars - u.CumDoneDollars
 
 		if u.Balance >= u.BalanceTreshold {
 			u.LowBalanceNotified = false
@@ -83,9 +91,5 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 		}
 	}
 
-	if tx != nil {
-		return s.repo.UpdateTx(ctx, tx, userID, u)
-	}
-
-	return s.repo.Update(ctx, userID, u)
+	return s.repo.UpdateTx(ctx, tx, userID, u)
 }

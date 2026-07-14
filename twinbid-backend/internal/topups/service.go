@@ -217,9 +217,9 @@ func (s *Service) Approve(ctx context.Context, userID, id string) (models.UserTr
 	}
 
 	if _, err := s.profileSvc.PatchTx(ctx, tx, userID, profile.PatchProfileRequest{
-		Balance: floatPtr(ut.TotalBalanceIncrease),
+		BalanceDelta: floatPtr(ut.TotalBalanceIncrease),
 	}); err != nil {
-		return models.UserTransaction{}, fmt.Errorf("patch profile balance: %w", err)
+		return models.UserTransaction{}, fmt.Errorf("increase user goal_total_dollars: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

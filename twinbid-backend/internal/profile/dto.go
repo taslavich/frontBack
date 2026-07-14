@@ -9,7 +9,7 @@ type PatchProfileRequest struct {
 	Telegram                     *string  `json:"-"`
 	TelegramSet                  bool     `json:"-"`
 	ManagerTelegram              *string  `json:"manager_telegram"`
-	Balance                      *float64 `json:"balance"`
+	BalanceDelta                 *float64 `json:"balance"`
 	Timezone                     *string  `json:"timezone"`
 	EmailNotifications           *bool    `json:"email_notifications"`
 	CampaignStatusNotifications  *bool    `json:"campaign_status_notifications"`

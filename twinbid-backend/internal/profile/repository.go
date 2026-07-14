@@ -13,6 +13,10 @@ type Repository struct{ db *sql.DB }
 
 func NewRepository(dbConn *sql.DB) *Repository { return &Repository{db: dbConn} }
 
+func (r *Repository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTx(ctx, nil)
+}
+
 type queryRunner interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
@@ -52,27 +56,32 @@ func (r *Repository) UpdateTx(ctx context.Context, tx *sql.Tx, userID string, u 
 
 func (r *Repository) update(ctx context.Context, q queryRunner, userID string, u models.User) (models.User, error) {
 	row := q.QueryRowContext(ctx, `
-		UPDATE users 
-		SET 
-			login=$2, 
-			mail=$3, 
-			name=$4, 
-			telegram=$5, 
-			manager_telegram=$6, 
-			balance=$7, 
-			timezone=$8,
-			email_notifications=$9, 
-			campaign_status_notifications=$10, 
-			low_balance_notifications=$11,
-			campaign_balance_notifications=$12, 
-			balance_treshold=$13, 
-			low_balance_notified=$14, 
+		UPDATE users
+		SET
+			login=$2,
+			mail=$3,
+			name=$4,
+			telegram=$5,
+			manager_telegram=$6,
+			goal_total_dollars=$7,
+			cum_done_dollars=$8,
+			timezone=$9,
+			email_notifications=$10,
+			campaign_status_notifications=$11,
+			low_balance_notifications=$12,
+			campaign_balance_notifications=$13,
+			balance_treshold=$14,
+			low_balance_notified=$15,
 			updated_at=NOW()
 		WHERE id=$1
-		RETURNING id, login, mail, name, telegram, manager_telegram, balance, timezone,
-			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notified
-	`, userID, u.Login, u.Mail, u.Name, u.Telegram, u.ManagerTelegram, u.Balance, u.Timezone,
+		RETURNING id, login, mail, name, telegram, manager_telegram,
+			goal_total_dollars, cum_done_dollars,
+			(goal_total_dollars - cum_done_dollars) AS balance,
+			timezone, email_notifications, campaign_status_notifications,
+			low_balance_notifications, campaign_balance_notifications,
+			balance_treshold, low_balance_notified
+	`, userID, u.Login, u.Mail, u.Name, u.Telegram, u.ManagerTelegram,
+		u.GoalTotalDollars, u.CumDoneDollars, u.Timezone,
 		u.EmailNotifications, u.CampaignStatusNotifications, u.LowBalanceNotifications,
 		u.CampaignBalanseNotifications, u.BalanceTreshold, u.LowBalanceNotified)
 
@@ -84,16 +93,24 @@ func (r *Repository) update(ctx context.Context, q queryRunner, userID string, u
 	return out, err
 }
 
-const selectUser = `SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
-	email_notifications, campaign_status_notifications, low_balance_notifications, campaign_balance_notifications, balance_treshold, low_balance_notified FROM users`
+const selectUser = `SELECT id, login, mail, name, telegram, manager_telegram,
+	goal_total_dollars, cum_done_dollars,
+	(goal_total_dollars - cum_done_dollars) AS balance,
+	timezone, email_notifications, campaign_status_notifications,
+	low_balance_notifications, campaign_balance_notifications,
+	balance_treshold, low_balance_notified FROM users`
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanUser(s scanner) (models.User, error) {
 	var u models.User
 	var telegram sql.NullString
-	err := s.Scan(&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram, &u.Balance, &u.Timezone,
-		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications, &u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified)
+	err := s.Scan(
+		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram,
+		&u.GoalTotalDollars, &u.CumDoneDollars, &u.Balance, &u.Timezone,
+		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
+		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified,
+	)
 	if err != nil {
 		return models.User{}, err
 	}

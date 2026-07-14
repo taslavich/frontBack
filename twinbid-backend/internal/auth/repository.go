@@ -29,7 +29,9 @@ func (r *Repository) CreateUser(
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO users (login, mail, name, telegram, manager_telegram, password, verified, utm_source)
 		VALUES ($1, $1, $2, $3, $4, $5, false, $6)
-		RETURNING id, login, mail, name, telegram, manager_telegram, balance, timezone,
+		RETURNING id, login, mail, name, telegram, manager_telegram,
+			goal_total_dollars, cum_done_dollars,
+			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
 			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 	`, email, fullName, telegram, managerTelegram, password, utmSource)
@@ -45,7 +47,9 @@ func (r *Repository) CreateUser(
 
 func (r *Repository) GetUserByEmailAndPassword(ctx context.Context, email, password string) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
+		SELECT id, login, mail, name, telegram, manager_telegram,
+			goal_total_dollars, cum_done_dollars,
+			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
 			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 		FROM users
@@ -60,7 +64,9 @@ func (r *Repository) GetUserByEmailAndPassword(ctx context.Context, email, passw
 
 func (r *Repository) GetUserByID(ctx context.Context, userID string) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, login, mail, name, telegram, manager_telegram, balance, timezone,
+		SELECT id, login, mail, name, telegram, manager_telegram,
+			goal_total_dollars, cum_done_dollars,
+			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
 			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
 		FROM users
@@ -169,7 +175,8 @@ func scanUser(row rowScanner) (models.User, error) {
 	var u models.User
 	var telegram sql.NullString
 	err := row.Scan(
-		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram, &u.Balance, &u.Timezone,
+		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram,
+		&u.GoalTotalDollars, &u.CumDoneDollars, &u.Balance, &u.Timezone,
 		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
 		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified, &u.Verified,
 	)
