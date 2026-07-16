@@ -132,25 +132,32 @@ func buildStatsQueries(userID string, req QueryRequest, table string) (sqlPlan, 
 	rowsSQL := fmt.Sprintf(`
 SELECT
     bucket,
-    impressions,
-    clicks,
-    conversions,
-    spent,
-    income,
-    conversions_approved,
-    income_approved,
-    round(if(impressions = 0, 0, clicks * 100.0 / impressions), 2) AS ctr
+    impressions_value AS impressions,
+    clicks_value AS clicks,
+    conversions_value AS conversions,
+    spent_value AS spent,
+    income_value AS income,
+    conversions_approved_value AS conversions_approved,
+    income_approved_value AS income_approved,
+    round(
+        if(
+            impressions_value = 0,
+            0,
+            clicks_value * 100.0 / impressions_value
+        ),
+        2
+    ) AS ctr
 FROM
 (
     SELECT
         %s AS bucket,
-        %s AS impressions,
-        %s AS clicks,
-        %s AS conversions,
-        %s AS spent,
-        %s AS income,
-        %s AS conversions_approved,
-        %s AS income_approved
+        %s AS impressions_value,
+        %s AS clicks_value,
+        %s AS conversions_value,
+        %s AS spent_value,
+        %s AS income_value,
+        %s AS conversions_approved_value,
+        %s AS income_approved_value
     FROM %s
     WHERE %s
     GROUP BY %s
@@ -172,24 +179,31 @@ FROM
 
 	totalsSQL := fmt.Sprintf(`
 SELECT
-    impressions,
-    clicks,
-    conversions,
-    spent,
-    income,
-    conversions_approved,
-    income_approved,
-    round(if(impressions = 0, 0, clicks * 100.0 / impressions), 2) AS ctr
+    impressions_value AS impressions,
+    clicks_value AS clicks,
+    conversions_value AS conversions,
+    spent_value AS spent,
+    income_value AS income,
+    conversions_approved_value AS conversions_approved,
+    income_approved_value AS income_approved,
+    round(
+        if(
+            impressions_value = 0,
+            0,
+            clicks_value * 100.0 / impressions_value
+        ),
+        2
+    ) AS ctr
 FROM
 (
     SELECT
-        %s AS impressions,
-        %s AS clicks,
-        %s AS conversions,
-        %s AS spent,
-        %s AS income,
-        %s AS conversions_approved,
-        %s AS income_approved
+        %s AS impressions_value,
+        %s AS clicks_value,
+        %s AS conversions_value,
+        %s AS spent_value,
+        %s AS income_value,
+        %s AS conversions_approved_value,
+        %s AS income_approved_value
     FROM %s
     WHERE %s
 )`,
