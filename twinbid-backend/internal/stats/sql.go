@@ -56,8 +56,8 @@ var groupColumns = map[GroupBy]groupSpec{
 		groupExpr:  "site_id",
 	},
 	GroupByCampaign: {
-		selectExpr: "toString(campaign_id)",
-		groupExpr:  "campaign_id",
+		selectExpr: "win_cid",
+		groupExpr:  "win_cid",
 	},
 }
 
@@ -69,7 +69,24 @@ var filterColumns = map[string]string{
 }
 
 const impressionsExpression = "toUInt64(ifNull(sum(impressions), 0))"
-const clicksExpression = "toUInt64(ifNull(sum(clicks), 0))"
+const clicksExpression = `toUInt64(
+    ifNull(
+        sum(
+            multiIf(
+                lowerUTF8(ifNull(format, '')) = 'pop',
+                impressions,
+                clicks
+            )
+        ),
+        0
+    )
+)`
+
+const conversionsExpression = "toUInt64(ifNull(sum(conversions), 0))"
+const incomeExpression = "round(ifNull(sum(payout), 0), 4)"
+
+const conversionsApprovedExpression = "toUInt64(ifNull(sum(conversions_approved), 0))"
+const incomeApprovedExpression = "round(ifNull(sum(payout_approved), 0), 4)"
 
 // Spent formula for the single endpoint /api/stats/query.
 // It assumes that ads.agg_stats has the future `format` column and that the MV groups by it.
@@ -77,8 +94,8 @@ const spentExpression = `round(
     ifNull(
         sum(
             multiIf(
-                lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table,
-                lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table,
+                lowerUTF8(ifNull(format, '')) IN ('ban', 'nat', 'pop'), spend_views_table,
+                lowerUTF8(ifNull(format, '')) = 'ipp', spend_clicks_table,
                 0
             )
         ),
@@ -117,7 +134,11 @@ SELECT
     bucket,
     impressions,
     clicks,
+    conversions,
     spent,
+    income,
+    conversions_approved,
+    income_approved,
     round(if(impressions = 0, 0, clicks * 100.0 / impressions), 2) AS ctr
 FROM
 (
@@ -125,7 +146,11 @@ FROM
         %s AS bucket,
         %s AS impressions,
         %s AS clicks,
-        %s AS spent
+        %s AS conversions,
+        %s AS spent,
+        %s AS income,
+        %s AS conversions_approved,
+        %s AS income_approved
     FROM %s
     WHERE %s
     GROUP BY %s
@@ -134,7 +159,11 @@ FROM
 		spec.selectExpr,
 		impressionsExpression,
 		clicksExpression,
+		conversionsExpression,
 		spentExpression,
+		incomeExpression,
+		conversionsApprovedExpression,
+		incomeApprovedExpression,
 		table,
 		where,
 		spec.groupExpr,
@@ -145,20 +174,32 @@ FROM
 SELECT
     impressions,
     clicks,
+    conversions,
     spent,
+    income,
+    conversions_approved,
+    income_approved,
     round(if(impressions = 0, 0, clicks * 100.0 / impressions), 2) AS ctr
 FROM
 (
     SELECT
         %s AS impressions,
         %s AS clicks,
-        %s AS spent
+        %s AS conversions,
+        %s AS spent,
+        %s AS income,
+        %s AS conversions_approved,
+        %s AS income_approved
     FROM %s
     WHERE %s
 )`,
 		impressionsExpression,
 		clicksExpression,
+		conversionsExpression,
 		spentExpression,
+		incomeExpression,
+		conversionsApprovedExpression,
+		incomeApprovedExpression,
 		table,
 		where,
 	)
@@ -177,18 +218,51 @@ func buildWhere(req QueryRequest, userID, from, to string) (string, []any, error
 		return "", nil, err
 	}
 
-	parts := []string{"user_id = toUUID(?)", "event_date BETWEEN toDate(?) AND toDate(?)"}
-	args := []any{userID, from, to}
+	parts := []string{
+		"win_user_id = ?",
+	}
+	args := []any{userID}
+
+	switch {
+	case from != "" && to != "":
+		parts = append(
+			parts,
+			"event_date BETWEEN toDate(?) AND toDate(?)",
+		)
+		args = append(args, from, to)
+
+	case from != "":
+		parts = append(
+			parts,
+			"event_date >= toDate(?)",
+		)
+		args = append(args, from)
+
+	case to != "":
+		parts = append(
+			parts,
+			"event_date <= toDate(?)",
+		)
+		args = append(args, to)
+	}
 
 	if len(req.CampaignIDs) > 0 {
-		parts = append(parts, "campaign_id IN ("+uuidPlaceholders(len(req.CampaignIDs))+")")
+		parts = append(
+			parts,
+			"win_cid IN ("+valuePlaceholders(len(req.CampaignIDs))+")",
+		)
+
 		for _, id := range req.CampaignIDs {
 			args = append(args, id)
 		}
 	}
 
 	if len(req.CreativeIDs) > 0 {
-		parts = append(parts, "creative_id IN ("+uuidPlaceholders(len(req.CreativeIDs))+")")
+		parts = append(
+			parts,
+			"win_crid IN ("+valuePlaceholders(len(req.CreativeIDs))+")",
+		)
+
 		for _, id := range req.CreativeIDs {
 			args = append(args, id)
 		}
@@ -217,22 +291,32 @@ func buildWhere(req QueryRequest, userID, from, to string) (string, []any, error
 }
 
 func normalizeDates(from, to string) (string, string, error) {
-	if from == "" {
-		from = time.Now().UTC().AddDate(0, -1, 0).Format("2006-01-02")
-	}
-	if to == "" {
-		to = time.Now().UTC().Format("2006-01-02")
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+
+	var fromDate time.Time
+	var toDate time.Time
+	var err error
+
+	if from != "" {
+		fromDate, err = time.Parse("2006-01-02", from)
+		if err != nil {
+			return "", "", httpx.BadRequest(
+				"invalid from date, expected YYYY-MM-DD",
+			)
+		}
 	}
 
-	fromDate, err := time.Parse("2006-01-02", from)
-	if err != nil {
-		return "", "", httpx.BadRequest("invalid from date, expected YYYY-MM-DD")
+	if to != "" {
+		toDate, err = time.Parse("2006-01-02", to)
+		if err != nil {
+			return "", "", httpx.BadRequest(
+				"invalid to date, expected YYYY-MM-DD",
+			)
+		}
 	}
-	toDate, err := time.Parse("2006-01-02", to)
-	if err != nil {
-		return "", "", httpx.BadRequest("invalid to date, expected YYYY-MM-DD")
-	}
-	if fromDate.After(toDate) {
+
+	if from != "" && to != "" && fromDate.After(toDate) {
 		return "", "", httpx.BadRequest("from must be <= to")
 	}
 
@@ -264,14 +348,6 @@ func validateUUIDList(values []string, field string) error {
 		}
 	}
 	return nil
-}
-
-func uuidPlaceholders(n int) string {
-	items := make([]string, n)
-	for i := range items {
-		items[i] = "toUUID(?)"
-	}
-	return strings.Join(items, ",")
 }
 
 func valuePlaceholders(n int) string {

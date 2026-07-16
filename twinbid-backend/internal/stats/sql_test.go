@@ -33,16 +33,25 @@ func TestBuildStatsQueriesHourWithFilters(t *testing.T) {
 
 	mustContain(t, rowsPlan.SQL, "formatDateTime(toStartOfHour(event_hour), '%F %H:00', 'UTC') AS bucket")
 	mustContain(t, rowsPlan.SQL, "FROM ads.agg_stats")
-	mustContain(t, rowsPlan.SQL, "user_id = toUUID(?)")
-	mustContain(t, rowsPlan.SQL, "campaign_id IN (toUUID(?))")
-	mustContain(t, rowsPlan.SQL, "creative_id IN (toUUID(?))")
+	mustContain(t, rowsPlan.SQL, "win_user_id = ?")
+	mustContain(t, rowsPlan.SQL, "win_cid IN (?)")
+	mustContain(t, rowsPlan.SQL, "win_crid IN (?)")
 	mustContain(t, rowsPlan.SQL, "geo IN (?,?)")
 	mustContain(t, rowsPlan.SQL, "os IN (?)")
 	mustContain(t, rowsPlan.SQL, "lowerUTF8(device_type) IN (?)")
 	mustContain(t, rowsPlan.SQL, "GROUP BY toStartOfHour(event_hour)")
 	mustContain(t, rowsPlan.SQL, "ORDER BY bucket")
-	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ban', 'nat'), spend_views_table")
-	mustContain(t, rowsPlan.SQL, "lowerUTF8(ifNull(format, '')) IN ('ipp', 'pop'), spend_clicks_table")
+	mustContain(
+		t,
+		rowsPlan.SQL,
+		"lowerUTF8(ifNull(format, '')) IN ('ban', 'nat', 'pop'), spend_views_table",
+	)
+
+	mustContain(
+		t,
+		rowsPlan.SQL,
+		"lowerUTF8(ifNull(format, '')) = 'ipp', spend_clicks_table",
+	)
 
 	if len(rowsPlan.Args) != 9 {
 		t.Fatalf("expected 9 args, got %d: %#v", len(rowsPlan.Args), rowsPlan.Args)
@@ -66,8 +75,14 @@ func TestBuildStatsQueriesCampaignHasNoOrderBy(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	mustContain(t, rowsPlan.SQL, "toString(campaign_id) AS bucket")
-	mustContain(t, rowsPlan.SQL, "GROUP BY campaign_id")
+	mustContain(t, rowsPlan.SQL, "win_cid AS bucket")
+	mustContain(t, rowsPlan.SQL, "GROUP BY win_cid")
+	mustContain(t, rowsPlan.SQL, "sum(conversions)")
+	mustContain(t, rowsPlan.SQL, "sum(payout)")
+	mustContain(t, rowsPlan.SQL, "sum(conversions_approved)")
+	mustContain(t, rowsPlan.SQL, "sum(payout_approved)")
+	mustNotContain(t, rowsPlan.SQL, " AS cr")
+	mustNotContain(t, rowsPlan.SQL, " AS roi")
 	mustNotContain(t, rowsPlan.SQL, "ORDER BY")
 }
 
@@ -155,5 +170,46 @@ func mustNotContain(t *testing.T, s string, sub string) {
 	t.Helper()
 	if strings.Contains(s, sub) {
 		t.Fatalf("expected SQL not to contain %q\nSQL:\n%s", sub, s)
+	}
+}
+
+func TestBuildStatsQueriesEmptyDatesHaveNoDateFilter(t *testing.T) {
+	req := QueryRequest{
+		From:    "",
+		To:      "",
+		GroupBy: GroupByCampaign,
+	}
+
+	rowsPlan, totalsPlan, err := buildStatsQueries(
+		testUserID,
+		req,
+		"ads.agg_stats",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mustContain(t, rowsPlan.SQL, "win_user_id = ?")
+	mustNotContain(t, rowsPlan.SQL, "event_date BETWEEN")
+	mustNotContain(t, rowsPlan.SQL, "event_date >=")
+	mustNotContain(t, rowsPlan.SQL, "event_date <=")
+
+	if len(rowsPlan.Args) != 1 {
+		t.Fatalf(
+			"expected only user id argument, got %d: %#v",
+			len(rowsPlan.Args),
+			rowsPlan.Args,
+		)
+	}
+
+	if rowsPlan.Args[0] != testUserID {
+		t.Fatalf("unexpected args: %#v", rowsPlan.Args)
+	}
+
+	if len(totalsPlan.Args) != 1 {
+		t.Fatalf(
+			"unexpected totals args: %#v",
+			totalsPlan.Args,
+		)
 	}
 }

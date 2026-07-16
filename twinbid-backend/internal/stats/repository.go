@@ -64,7 +64,17 @@ func (r *ClickHouseRepository) Query(ctx context.Context, userID string, req Que
 	for rows.Next() {
 		var bucket string
 		var summary Summary
-		if err := rows.Scan(&bucket, &summary.Impressions, &summary.Clicks, &summary.Spent, &summary.CTR); err != nil {
+		if err := rows.Scan(
+			&bucket,
+			&summary.Impressions,
+			&summary.Clicks,
+			&summary.Conversions,
+			&summary.Spent,
+			&summary.Income,
+			&summary.ConversionsApproved,
+			&summary.IncomeApproved,
+			&summary.CTR,
+		); err != nil {
 			return QueryResponse{}, err
 		}
 		out[bucket] = summary
@@ -74,10 +84,18 @@ func (r *ClickHouseRepository) Query(ctx context.Context, userID string, req Que
 	}
 
 	var totals Summary
-	if err := r.db.QueryRowContext(ctx, totalsPlan.SQL, totalsPlan.Args...).Scan(
+	if err := r.db.QueryRowContext(
+		ctx,
+		totalsPlan.SQL,
+		totalsPlan.Args...,
+	).Scan(
 		&totals.Impressions,
 		&totals.Clicks,
+		&totals.Conversions,
 		&totals.Spent,
+		&totals.Income,
+		&totals.ConversionsApproved,
+		&totals.IncomeApproved,
 		&totals.CTR,
 	); err != nil {
 		return QueryResponse{}, err

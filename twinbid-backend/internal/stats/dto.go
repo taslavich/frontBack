@@ -34,10 +34,14 @@ type QueryRequest struct {
 }
 
 type Summary struct {
-	Impressions uint64  `json:"impressions"`
-	Clicks      uint64  `json:"clicks"`
-	Spent       float64 `json:"spent"`
-	CTR         float64 `json:"ctr"`
+	Impressions         uint64  `json:"impressions"`
+	Clicks              uint64  `json:"clicks"`
+	Conversions         uint64  `json:"conversions"`
+	Spent               float64 `json:"spent"`
+	Income              float64 `json:"income"`
+	ConversionsApproved uint64  `json:"conversions_approved"`
+	IncomeApproved      float64 `json:"income_approved"`
+	CTR                 float64 `json:"ctr"`
 }
 
 type QueryResponse struct {
