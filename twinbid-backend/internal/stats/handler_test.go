@@ -21,12 +21,27 @@ type fakeQueryService struct {
 	gotReq    QueryRequest
 	resp      QueryResponse
 	err       error
+
+	gotTrafficReq  TrafficSegmentRequest
+	calculatorResp CalculatorResponse
+	recommendResp  RecommendBidResponse
+	trafficErr     error
 }
 
 func (f *fakeQueryService) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
 	f.gotUserID = userID
 	f.gotReq = req
 	return f.resp, f.err
+}
+
+func (f *fakeQueryService) Calculator(ctx context.Context, req TrafficSegmentRequest) (CalculatorResponse, error) {
+	f.gotTrafficReq = req
+	return f.calculatorResp, f.trafficErr
+}
+
+func (f *fakeQueryService) RecommendBid(ctx context.Context, req TrafficSegmentRequest) (RecommendBidResponse, error) {
+	f.gotTrafficReq = req
+	return f.recommendResp, f.trafficErr
 }
 
 func TestHandlerQueryOK(t *testing.T) {
@@ -101,6 +116,98 @@ func TestHandlerQueryServiceError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
+}
+
+func TestHandlerCalculatorOK(t *testing.T) {
+	svc := &fakeQueryService{
+		calculatorResp: CalculatorResponse{PotentialImpressions: 128400},
+	}
+	body := []byte(`{
+		"format_type":"banner",
+		"traffic_type":"mainstream",
+		"country":["DE"],
+		"country_mode":"include"
+	}`)
+
+	w := performTrafficRequest(t, NewHandler(svc), "/api/calculator", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if svc.gotTrafficReq.FormatType != "banner" || svc.gotTrafficReq.Country[0] != "DE" {
+		t.Fatalf("unexpected request: %#v", svc.gotTrafficReq)
+	}
+
+	var envelope struct {
+		Success bool               `json:"success"`
+		Data    CalculatorResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if !envelope.Success || envelope.Data.PotentialImpressions != 128400 {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestHandlerRecommendBidOK(t *testing.T) {
+	svc := &fakeQueryService{
+		recommendResp: RecommendBidResponse{AverageBid: 1.24},
+	}
+	body := []byte(`{
+		"format_type":"popunder",
+		"traffic_type":"mixed",
+		"browser":["Chrome"],
+		"browser_mode":"exclude"
+	}`)
+
+	w := performTrafficRequest(t, NewHandler(svc), "/api/recommend_bid", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var envelope struct {
+		Success bool                 `json:"success"`
+		Data    RecommendBidResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if !envelope.Success || envelope.Data.AverageBid != 1.24 {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestHandlerCalculatorBadJSON(t *testing.T) {
+	w := performTrafficRequest(t, NewHandler(&fakeQueryService{}), "/api/calculator", []byte(`{bad json`))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func performTrafficRequest(t *testing.T, h *Handler, path string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	const secret = "test-secret"
+	authSvc := auth.NewService(nil, config.JWTConfig{Secret: secret}, config.SMTPConfig{})
+
+	router := chi.NewRouter()
+	router.Group(func(r chi.Router) {
+		r.Use(auth.Middleware(authSvc))
+		r.Post("/api/calculator", h.Calculator)
+		r.Post("/api/recommend_bid", h.RecommendBid)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	token, _, err := auth.GenerateJWT(secret, testUserID, "test@example.com", "access", time.Hour)
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
 }
 
 func performStatsRequest(t *testing.T, h *Handler, body []byte, withToken bool) *httptest.ResponseRecorder {

@@ -14,8 +14,9 @@ import (
 )
 
 type ClickHouseRepository struct {
-	db    *sql.DB
-	table string
+	db           *sql.DB
+	table        string
+	trafficTable string
 }
 
 func NewClickHouseRepository(ctx context.Context, cfg config.ClickHouseConfig) (*ClickHouseRepository, error) {
@@ -38,7 +39,16 @@ func NewClickHouseRepository(ctx context.Context, cfg config.ClickHouseConfig) (
 		table = "agg_stats"
 	}
 
-	return &ClickHouseRepository{db: db, table: table}, nil
+	trafficTable := strings.TrimSpace(cfg.TrafficTable)
+	if trafficTable == "" {
+		trafficTable = "traffic_volume_hourly"
+	}
+
+	return &ClickHouseRepository{
+		db:           db,
+		table:        table,
+		trafficTable: trafficTable,
+	}, nil
 }
 
 func (r *ClickHouseRepository) Close() error {
@@ -102,6 +112,44 @@ func (r *ClickHouseRepository) Query(ctx context.Context, userID string, req Que
 	}
 
 	return QueryResponse{Rows: out, Totals: totals}, nil
+}
+
+func (r *ClickHouseRepository) Calculator(
+	ctx context.Context,
+	req TrafficSegmentRequest,
+) (CalculatorResponse, error) {
+	plan, err := buildCalculatorPlan(req, r.trafficTable)
+	if err != nil {
+		return CalculatorResponse{}, err
+	}
+
+	var out CalculatorResponse
+	if err := r.db.QueryRowContext(ctx, plan.SQL, plan.Args...).Scan(
+		&out.PotentialImpressions,
+	); err != nil {
+		return CalculatorResponse{}, err
+	}
+
+	return out, nil
+}
+
+func (r *ClickHouseRepository) RecommendBid(
+	ctx context.Context,
+	req TrafficSegmentRequest,
+) (RecommendBidResponse, error) {
+	plan, err := buildRecommendBidPlan(req, r.trafficTable)
+	if err != nil {
+		return RecommendBidResponse{}, err
+	}
+
+	var out RecommendBidResponse
+	if err := r.db.QueryRowContext(ctx, plan.SQL, plan.Args...).Scan(
+		&out.AverageBid,
+	); err != nil {
+		return RecommendBidResponse{}, err
+	}
+
+	return out, nil
 }
 
 func buildDSN(cfg config.ClickHouseConfig) string {

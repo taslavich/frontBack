@@ -49,3 +49,16 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(date)
 ORDER BY (user_id, date, campaign_id, creative_id);
 ```
+
+## Traffic calculator and bid recommendation
+
+The backend also expects `CLICKHOUSE_TRAFFIC_TABLE` (default: `traffic_volume_hourly`)
+for `POST /api/calculator` and `POST /api/recommend_bid`. Create the table and
+materialized view with:
+
+```bash
+clickhouse-client --multiquery < clickhouse/traffic_volume_hourly.sql
+```
+
+See `PATCH_TRAFFIC_ENDPOINTS.md` for the request/response contract and optional
+historical backfill instructions.

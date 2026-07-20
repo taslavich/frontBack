@@ -10,12 +10,18 @@ type querier interface {
 	Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error)
 }
 
+type trafficQuerier interface {
+	Calculator(ctx context.Context, req TrafficSegmentRequest) (CalculatorResponse, error)
+	RecommendBid(ctx context.Context, req TrafficSegmentRequest) (RecommendBidResponse, error)
+}
+
 type closer interface {
 	Close() error
 }
 
 type repository interface {
 	querier
+	trafficQuerier
 	closer
 }
 
@@ -37,6 +43,14 @@ func NewServiceWithRepository(repo repository) *Service {
 
 func (s *Service) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
 	return s.repo.Query(ctx, userID, req)
+}
+
+func (s *Service) Calculator(ctx context.Context, req TrafficSegmentRequest) (CalculatorResponse, error) {
+	return s.repo.Calculator(ctx, req)
+}
+
+func (s *Service) RecommendBid(ctx context.Context, req TrafficSegmentRequest) (RecommendBidResponse, error) {
+	return s.repo.RecommendBid(ctx, req)
 }
 
 func (s *Service) Close() error {

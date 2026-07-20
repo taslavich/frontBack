@@ -308,6 +308,8 @@ func buildRouter(
 		r.Patch("/api/notifications/{id}", notificationHandler.Patch)
 
 		r.Post("/api/stats/query", statsHandler.Query)
+		r.Post("/api/calculator", statsHandler.Calculator)
+		r.Post("/api/recommend_bid", statsHandler.RecommendBid)
 	})
 
 	return r
