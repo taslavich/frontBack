@@ -194,6 +194,12 @@ func buildTrafficQueryParts(req TrafficSegmentRequest, table string) (string, []
 			modeField: "browser_mode",
 			expand:    browserGroupValues,
 		},
+		{
+			column:    "site_id",
+			values:    req.SiteID,
+			mode:      req.SiteIDMode,
+			modeField: "site_id_mode",
+		},
 	}
 
 	for _, filter := range filters {

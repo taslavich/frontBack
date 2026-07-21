@@ -27,6 +27,9 @@ type TrafficSegmentRequest struct {
 
 	Browser     []string   `json:"browser,omitempty"`
 	BrowserMode FilterMode `json:"browser_mode,omitempty"`
+
+	SiteID     []string   `json:"site_id,omitempty"`
+	SiteIDMode FilterMode `json:"site_id_mode,omitempty"`
 }
 
 type CalculatorResponse struct {
