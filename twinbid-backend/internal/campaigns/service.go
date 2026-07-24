@@ -62,9 +62,15 @@ func (s *Service) GetFormat(ctx context.Context, campaignID string) (string, err
 func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignRequest) (models.Campaign, error) {
 	status := valueOr(req.Status, "draft")
 	c := models.Campaign{
-		UserID:             userID,
-		CampaignName:       req.CampaignName,
-		QualityType:        req.QualityType,
+		UserID:       userID,
+		CampaignName: req.CampaignName,
+		QualityType:  req.QualityType,
+		TrafficResetVersion: func() int64 {
+			if status == "active" {
+				return 1
+			}
+			return 0
+		}(),
 		FormatType:         req.FormatType,
 		BrandName:          req.BrandName,
 		H:                  req.H,
@@ -111,105 +117,19 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 }
 
 func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaignRequest) (models.Campaign, error) {
-	current, err := s.repo.Get(ctx, campaignID)
-	if err != nil {
-		return models.Campaign{}, err
-	}
-
-	oldStatus := current.Status
-
-	if req.CampaignName != nil {
-		current.CampaignName = *req.CampaignName
-	}
-	if req.FormatType != nil {
-		current.FormatType = *req.FormatType
-	}
-	if req.QualityType != nil {
-		current.QualityType = *req.QualityType
-	}
-	if req.BrandNameSet {
-		current.BrandName = req.BrandName
-	}
-	if req.HSet {
-		current.H = req.H
-	}
-	if req.WSet {
-		current.W = req.W
-	}
-	if req.Status != nil {
-		current.Status = *req.Status
-	}
-	if req.TrafficType != nil {
-		current.TrafficType = *req.TrafficType
-	}
-	if req.Vertical != nil {
-		current.Vertical = *req.Vertical
-	}
-	if req.PricingModel != nil {
-		current.PricingModel = *req.PricingModel
-	}
-	if req.BasePrice != nil {
-		current.BasePrice = *req.BasePrice
-	}
-	if req.EvennessBySlotMode != nil {
-		current.EvennessBySlotMode = *req.EvennessBySlotMode
-	}
-	if req.GoalTotalDollars != nil {
-		current.GoalTotalDollars = *req.GoalTotalDollars
-		if current.GoalTotalDollars > current.CumDoneDollars {
-			current.NoBudgetNotified = false
+	var oldStatus string
+	campaign, err := s.repo.UpdateLocked(ctx, campaignID, func(current *models.Campaign) error {
+		before := cloneCampaignForComparison(*current)
+		oldStatus = before.Status
+		applyPatchRequest(current, req)
+		if err := validateCampaign(*current); err != nil {
+			return err
 		}
-	}
-	if req.CumDoneDollars != nil {
-		current.CumDoneDollars = *req.CumDoneDollars
-	}
-	if req.StartTS != nil {
-		current.StartTS = *req.StartTS
-	}
-	if req.EndTS != nil {
-		current.EndTS = *req.EndTS
-	}
-	if req.ActiveIntervals != nil {
-		current.ActiveIntervals = *req.ActiveIntervals
-	}
-	if req.Country != nil {
-		current.Country = models.NormalizeTargetingFilter(*req.Country)
-	}
-	if req.Language != nil {
-		current.Language = models.NormalizeTargetingFilter(*req.Language)
-	}
-	if req.DeviceType != nil {
-		current.DeviceType = models.NormalizeTargetingFilter(*req.DeviceType)
-	}
-	if req.OS != nil {
-		current.OS = models.NormalizeTargetingFilter(*req.OS)
-	}
-	if req.Browser != nil {
-		current.Browser = models.NormalizeTargetingFilter(*req.Browser)
-	}
-	if req.SiteID != nil {
-		current.SiteID = models.NormalizeTargetingFilter(*req.SiteID)
-	}
-	if req.IP != nil {
-		current.IP = models.NormalizeTargetingFilter(*req.IP)
-	}
-	if req.NoBudgetNotified != nil {
-		current.NoBudgetNotified = *req.NoBudgetNotified
-	}
-
-	if req.StartTS != nil {
-		current.StartTS = req.StartTS.UTC()
-	}
-	if req.EndTS != nil {
-		current.EndTS = req.EndTS.UTC()
-	}
-
-	if err := validateCampaign(current); err != nil {
-		return models.Campaign{}, err
-	}
-
-	////////////////////////////////////////////
-	campaign, err := s.repo.Update(ctx, current)
+		if requiresTrafficReset(before, *current) {
+			current.TrafficResetVersion++
+		}
+		return nil
+	})
 	if err != nil {
 		return models.Campaign{}, fmt.Errorf("cannot patch campaign: %w", err)
 	}
@@ -221,7 +141,7 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	}
 
 	///////
-	if current.Status == "moderation" {
+	if campaign.Status == "moderation" {
 		fmt.Println("MODERATION CASE")
 		user, err := s.profileRepo.Get(ctx, campaign.UserID)
 		if err != nil {

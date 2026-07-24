@@ -106,6 +106,24 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
+		`CREATE TABLE IF NOT EXISTS antiperekrut_control_state (
+			id SMALLINT PRIMARY KEY,
+			global_reset_generation BIGINT NOT NULL DEFAULT 0,
+			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			CONSTRAINT antiperekrut_control_state_singleton CHECK (id = 1)
+		);`,
+		`INSERT INTO antiperekrut_control_state (id, global_reset_generation)
+		 VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`,
+		`CREATE TABLE IF NOT EXISTS antiperekrut_restart_events (
+			event_id UUID PRIMARY KEY,
+			source_service TEXT NOT NULL,
+			source_instance TEXT NOT NULL,
+			reason TEXT NOT NULL DEFAULT 'startup',
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_antiperekrut_restart_events_created_at
+		 ON antiperekrut_restart_events(created_at DESC);`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (
