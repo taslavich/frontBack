@@ -1,14 +1,14 @@
 package creatives
 
 import (
-	"encoding/json"
-	"mime/multipart"
+	"io"
+	"mime"
 	"net/http"
 	"strconv"
 
 	"twinbid-backend/internal/auth"
 	"twinbid-backend/internal/httpx"
-	"twinbid-backend/internal/models"
+	"twinbid-backend/internal/storage"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -26,16 +26,41 @@ func (h *Handler) ListByCampaign(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, items)
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	req, file, header, filename, err := parseCreativeForm(r)
+func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxCreativeImageSize+(1<<20))
+	if err := r.ParseMultipartForm(maxCreativeImageSize); err != nil {
+		httpx.Error(w, httpx.BadRequest("invalid multipart image upload: "+err.Error()))
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		httpx.Error(w, httpx.BadRequest("file is required"))
+		return
+	}
+	defer file.Close()
+
+	image, err := h.svc.UploadImage(
+		r.Context(),
+		auth.UserID(r),
+		chi.URLParam(r, "campaignID"),
+		file,
+		header,
+		r.FormValue("filename"),
+	)
 	if err != nil {
 		httpx.Error(w, err)
 		return
 	}
-	if file != nil {
-		defer file.Close()
+	httpx.JSON(w, http.StatusCreated, image)
+}
+
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	var req CreateCreativeRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.Error(w, err)
+		return
 	}
-	item, err := h.svc.Create(r.Context(), auth.UserID(r), chi.URLParam(r, "campaignID"), req, file, header, filename)
+	item, err := h.svc.Create(r.Context(), auth.UserID(r), chi.URLParam(r, "campaignID"), req)
 	if err != nil {
 		httpx.Error(w, err)
 		return
@@ -44,15 +69,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
-	req, file, header, filename, err := parseCreativeForm(r)
-	if err != nil {
+	var req PatchCreativeRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.Error(w, err)
 		return
 	}
-	if file != nil {
-		defer file.Close()
-	}
-	item, err := h.svc.Patch(r.Context(), auth.UserID(r), chi.URLParam(r, "id"), req, true, file, header, filename)
+	item, err := h.svc.Patch(r.Context(), auth.UserID(r), chi.URLParam(r, "id"), req)
 	if err != nil {
 		httpx.Error(w, err)
 		return
@@ -68,53 +90,53 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	httpx.NoContent(w)
 }
 
-func parseCreativeForm(r *http.Request) (FormCreativeRequest, multipart.File, *multipart.FileHeader, string, error) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		return FormCreativeRequest{}, nil, nil, "", httpx.BadRequest(err.Error())
-	}
-	form := r.MultipartForm
-	var req FormCreativeRequest
-	req.CreativeName = first(form.Value, "creative_name")
-	req.Link = first(form.Value, "link")
-	if raw := first(form.Value, "trackers_macros"); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &req.TrackersMacros); err != nil {
-			return req, nil, nil, "", httpx.BadRequest("invalid trackers_macros")
-		}
-	} else {
-		req.TrackersMacros = models.MacroMap{}
-	}
-	if raw := first(form.Value, "w"); raw != "" {
-		n, err := strconv.Atoi(raw)
+// Media serves a private MinIO object through the backend using a permanent UUID URL.
+// The route is intentionally public because the URL is embedded into advertising ADM.
+func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
+	imageID := chi.URLParam(r, "imageID")
+	if r.Method == http.MethodHead {
+		image, metadata, err := h.svc.HeadMediaImage(r.Context(), imageID)
 		if err != nil {
-			return req, nil, nil, "", httpx.BadRequest("invalid w")
+			httpx.Error(w, err)
+			return
 		}
-		req.W = &n
+		setMediaHeaders(w, image.OriginalName, image.MimeType, metadata)
+		w.WriteHeader(http.StatusOK)
+		return
 	}
-	if raw := first(form.Value, "h"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil {
-			return req, nil, nil, "", httpx.BadRequest("invalid h")
-		}
-		req.H = &n
+
+	image, object, err := h.svc.GetMediaImage(r.Context(), imageID)
+	if err != nil {
+		httpx.Error(w, err)
+		return
 	}
-	if raw := first(form.Value, "title"); raw != "" {
-		req.Title = &raw
+	defer object.Body.Close()
+	setMediaHeaders(w, image.OriginalName, image.MimeType, object.ObjectMetadata)
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, object.Body); err != nil {
+		return
 	}
-	if raw := first(form.Value, "description"); raw != "" {
-		req.Description = &raw
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil && err != http.ErrMissingFile {
-		return req, nil, nil, "", httpx.BadRequest(err.Error())
-	}
-	filename := first(form.Value, "filename")
-	return req, file, header, filename, nil
 }
 
-func first(m map[string][]string, key string) string {
-	v := m[key]
-	if len(v) == 0 {
-		return ""
+func setMediaHeaders(w http.ResponseWriter, filename, storedMimeType string, metadata storage.ObjectMetadata) {
+	contentType := metadata.ContentType
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = storedMimeType
 	}
-	return v[0]
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filename}))
+	if metadata.ContentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(metadata.ContentLength, 10))
+	}
+	if metadata.ETag != "" {
+		w.Header().Set("ETag", metadata.ETag)
+	}
+	if metadata.LastModified != nil {
+		w.Header().Set("Last-Modified", metadata.LastModified.UTC().Format(http.TimeFormat))
+	}
 }

@@ -35,7 +35,7 @@ type FilePayload struct {
 
 type CreativePayload struct {
 	CreativeName string       `json:"creative_name"`
-	URL          string       `json:"url"`
+	ADM          string       `json:"adm"`
 	Macros       string       `json:"macros,omitempty"`
 	ImageFile    *FilePayload `json:"-"`
 	ImageURL     string       `json:"image_url,omitempty"`

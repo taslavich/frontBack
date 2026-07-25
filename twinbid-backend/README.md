@@ -13,15 +13,39 @@ go run ./cmd/api
 
 The app runs migrations in Postgres on startup.
 
-## S3
+## Creative images and private MinIO
 
-Creatives are stored in S3 using keys:
+MinIO stays private. The backend connects to it through the local S3 endpoint and
+serves permanent public image URLs itself:
 
-```text
-creatives/{campaign_id}/{creative_id}/{filename}
+```env
+S3_ENDPOINT=http://127.0.0.1:9000
+S3_BUCKET=creatives
+S3_USE_PATH_STYLE=true
+PUBLIC_API_BASE_URL=https://twinbid.io
 ```
 
-For read operations backend returns `name` and `presigned_s3_url`.
+New images are uploaded with:
+
+```text
+POST /api/campaigns/{campaignID}/creative-images
+```
+
+The backend stores objects under keys such as:
+
+```text
+images/{campaign_id}/{image_uuid}.png
+```
+
+The returned permanent URL has no signature or TTL:
+
+```text
+https://twinbid.io/api/media/{image_uuid}
+```
+
+`GET` and `HEAD /api/media/{image_uuid}` read the private MinIO object through
+the backend. Creative create/update requests are JSON and reference the uploaded
+object with `image_id`.
 
 ## ClickHouse stats table expected by default
 

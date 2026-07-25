@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/url"
 	"strings"
@@ -24,7 +25,7 @@ func NewPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Migrate(ctx context.Context, db *sql.DB) error {
+func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 	queries := []string{
 		`CREATE EXTENSION IF NOT EXISTS pgcrypto;`,
 		`CREATE TABLE IF NOT EXISTS users (
@@ -141,7 +142,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			campaign_id UUID NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
 			creative_name TEXT NOT NULL,
-			link TEXT NOT NULL,
+			adm TEXT NOT NULL,
+			banner_type TEXT,
 			trackers_macros JSONB NOT NULL DEFAULT '{}'::jsonb,
 			w INT,
 			h INT,
@@ -152,6 +154,55 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			description TEXT,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);`,
+		`DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema='public' AND table_name='creatives' AND column_name='link'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema='public' AND table_name='creatives' AND column_name='adm'
+			) THEN
+				ALTER TABLE creatives RENAME COLUMN link TO adm;
+			END IF;
+		END $$;`,
+		`ALTER TABLE creatives ADD COLUMN IF NOT EXISTS adm TEXT;`,
+		`UPDATE creatives SET adm='' WHERE adm IS NULL;`,
+		`ALTER TABLE creatives ALTER COLUMN adm SET NOT NULL;`,
+		`ALTER TABLE creatives ADD COLUMN IF NOT EXISTS banner_type TEXT;`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.table_constraints
+				WHERE table_schema='public' AND table_name='creatives'
+				  AND constraint_name='check_creatives_banner_type'
+			) THEN
+				ALTER TABLE creatives ADD CONSTRAINT check_creatives_banner_type
+				CHECK (banner_type IS NULL OR banner_type IN ('img', 'iframe'));
+			END IF;
+		END $$;`,
+		`UPDATE creatives cr
+		 SET banner_type='img'
+		 FROM campaigns c
+		 WHERE c.campaign_id=cr.campaign_id AND c.format_type='banner' AND cr.banner_type IS NULL;`,
+		`UPDATE creatives cr
+		 SET banner_type=NULL
+		 FROM campaigns c
+		 WHERE c.campaign_id=cr.campaign_id AND c.format_type<>'banner' AND cr.banner_type IS NOT NULL;`,
+		`CREATE TABLE IF NOT EXISTS creative_images (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			campaign_id UUID REFERENCES campaigns(campaign_id) ON DELETE SET NULL,
+			creative_id UUID UNIQUE REFERENCES creatives(id) ON DELETE SET NULL,
+			s3_key TEXT NOT NULL UNIQUE,
+			web_url TEXT NOT NULL UNIQUE,
+			original_name TEXT NOT NULL,
+			mime_type TEXT NOT NULL,
+			file_format TEXT NOT NULL,
+			size_bytes BIGINT NOT NULL DEFAULT 0 CHECK (size_bytes >= 0),
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE TABLE IF NOT EXISTS promocodes (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -199,6 +250,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_expires_at ON refresh_tokens(user_id, expires_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_creatives_campaign_id ON creatives(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_creatives_campaign_created_at_desc ON creatives(campaign_id, created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_creative_images_user_id ON creative_images(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_creative_images_campaign_id ON creative_images(campaign_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_creative_images_creative_id ON creative_images(creative_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON user_transactions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at_desc ON user_transactions(user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_promocode_status ON user_transactions(user_id, promocode_id, status);`,
@@ -223,11 +277,54 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(publicAPIBaseURL), "/")
+	if baseURL == "" {
+		return fmt.Errorf("PUBLIC_API_BASE_URL is required for creative image migration")
+	}
+	_, err := db.ExecContext(ctx, `
+		WITH legacy AS (
+			SELECT gen_random_uuid() AS image_id,
+				c.user_id,
+				cr.campaign_id,
+				cr.id AS creative_id,
+				cr.s3_file_path AS s3_key,
+				COALESCE(NULLIF(cr.name, ''), regexp_replace(cr.s3_file_path, '^.*/', ''), 'legacy-image') AS original_name,
+				COALESCE(NULLIF(lower(cr.file_format), ''), 'bin') AS file_format
+			FROM creatives cr
+			JOIN campaigns c ON c.campaign_id=cr.campaign_id
+			LEFT JOIN creative_images ci ON ci.creative_id=cr.id
+			WHERE cr.s3_file_path IS NOT NULL AND cr.s3_file_path<>'' AND ci.id IS NULL
+		)
+		INSERT INTO creative_images (
+			id, user_id, campaign_id, creative_id, s3_key, web_url, original_name,
+			mime_type, file_format, size_bytes
+		)
+		SELECT image_id, user_id, campaign_id, creative_id, s3_key,
+			$1 || '/api/media/' || image_id::text,
+			original_name,
+			CASE file_format
+				WHEN 'jpg' THEN 'image/jpeg'
+				WHEN 'jpeg' THEN 'image/jpeg'
+				WHEN 'png' THEN 'image/png'
+				WHEN 'gif' THEN 'image/gif'
+				WHEN 'webp' THEN 'image/webp'
+				ELSE 'application/octet-stream'
+			END,
+			file_format,
+			0
+		FROM legacy
+		ON CONFLICT (creative_id) DO NOTHING
+	`, baseURL)
+	if err != nil {
+		log.Printf("creative image backfill error: %v", err)
+		return err
+	}
 	return nil
 }
 
 // InitDBAndMigrate создаёт БД при необходимости и запускает миграцию
-func InitDBAndMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
+func InitDBAndMigrate(ctx context.Context, dsn, publicAPIBaseURL string) (*sql.DB, error) {
 	// Подключаемся к системной БД postgres
 	sysDSN := removeDatabaseFromDSN(dsn)
 
@@ -267,7 +364,7 @@ func InitDBAndMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(ctx, db, publicAPIBaseURL); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -32,7 +32,7 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
-	pg, err := db.InitDBAndMigrate(ctx, cfg.Postgres.DSN)
+	pg, err := db.InitDBAndMigrate(ctx, cfg.Postgres.DSN, cfg.PublicAPIBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
@@ -86,7 +86,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	)
 	campaignHandler := campaigns.NewHandler(campaignSvc)
 
-	creativeSvc := creatives.NewService(creativeRepo, campaignSvc, s3)
+	creativeSvc := creatives.NewService(creativeRepo, campaignSvc, s3, cfg.PublicAPIBaseURL)
 	creativeHandler := creatives.NewHandler(creativeSvc)
 
 	promoRepo := promocodes.NewRepository(pg)
@@ -262,6 +262,9 @@ func buildRouter(
 	r.Use(middleware.Recoverer)
 	r.Use(cors)
 
+	r.Get("/api/media/{imageID}", creativeHandler.Media)
+	r.Head("/api/media/{imageID}", creativeHandler.Media)
+
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)
 		r.Post("/login", authHandler.Login)
@@ -288,6 +291,7 @@ func buildRouter(
 		r.Delete("/api/campaigns/{id}", campaignHandler.Delete)
 
 		r.Get("/api/campaigns/{campaignID}/creatives", creativeHandler.ListByCampaign)
+		r.Post("/api/campaigns/{campaignID}/creative-images", creativeHandler.UploadImage)
 		r.Post("/api/campaigns/{campaignID}/creatives", creativeHandler.Create)
 		r.Patch("/api/creatives/{id}", creativeHandler.Patch)
 		r.Delete("/api/creatives/{id}", creativeHandler.Delete)

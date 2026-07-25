@@ -11,14 +11,15 @@ import (
 )
 
 type Config struct {
-	HTTP          HTTPConfig
-	Postgres      PostgresConfig
-	JWT           JWTConfig
-	SMTP          SMTPConfig
-	ClickHouse    ClickHouseConfig
-	S3            S3Config
-	Notifications NotificationsConfig
-	Bot           BotConfig
+	HTTP             HTTPConfig
+	Postgres         PostgresConfig
+	JWT              JWTConfig
+	SMTP             SMTPConfig
+	ClickHouse       ClickHouseConfig
+	S3               S3Config
+	Notifications    NotificationsConfig
+	Bot              BotConfig
+	PublicAPIBaseURL string `env:"PUBLIC_API_BASE_URL" env-default:"http://localhost:8080"`
 
 	// POP
 	SspPopAdlFeeds MapStringToString `yaml:"SSP_POP_ADL_FEEDS" env:"SSP_POP_ADL_FEEDS"`
@@ -81,13 +82,12 @@ type BotConfig struct {
 }
 
 type S3Config struct {
-	Endpoint     string        `env:"S3_ENDPOINT" env-default:"http://localhost:9002"`
-	Region       string        `env:"AWS_REGION" env-default:"us-east-1"`
-	Bucket       string        `env:"S3_BUCKET" env-default:"twinbid-creatives"`
-	AccessKey    string        `env:"AWS_ACCESS_KEY_ID" env-default:"minioadmin"`
-	SecretKey    string        `env:"AWS_SECRET_ACCESS_KEY" env-default:"minioadmin"`
-	UsePathStyle bool          `env:"S3_USE_PATH_STYLE" env-default:"true"`
-	PresignTTL   time.Duration `env:"S3_PRESIGN_TTL" env-default:"15m"`
+	Endpoint     string `env:"S3_ENDPOINT" env-default:"http://127.0.0.1:9000"`
+	Region       string `env:"AWS_REGION" env-default:"us-east-1"`
+	Bucket       string `env:"S3_BUCKET" env-default:"creatives"`
+	AccessKey    string `env:"AWS_ACCESS_KEY_ID" env-default:"minioadmin"`
+	SecretKey    string `env:"AWS_SECRET_ACCESS_KEY" env-default:"minioadmin"`
+	UsePathStyle bool   `env:"S3_USE_PATH_STYLE" env-default:"true"`
 }
 
 // Кастомный тип для map[string]string

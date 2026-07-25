@@ -75,18 +75,36 @@ type Creative struct {
 	ID             string   `json:"id"`
 	CampaignID     string   `json:"campaign_id"`
 	CreativeName   string   `json:"creative_name"`
-	Link           string   `json:"link"`
+	ADM            string   `json:"adm"`
+	BannerType     *string  `json:"banner_type,omitempty"`
 	TrackersMacros MacroMap `json:"trackers_macros"`
 	Macros         MacroMap `json:"macros"`
 	W              *int     `json:"w,omitempty"`
 	H              *int     `json:"h,omitempty"`
 	Title          *string  `json:"title,omitempty"`
 	Description    *string  `json:"description,omitempty"`
-	Name           *string  `json:"name,omitempty"`
-	S3FilePath     *string  `json:"-"`
-	FileFormat     *string  `json:"-"`
-	PresignedS3URL *string  `json:"presigned_s3_url,omitempty"`
+	ImageID        *string  `json:"image_id,omitempty"`
+	ImageURL       *string  `json:"image_url,omitempty"`
+	ImageName      *string  `json:"image_name,omitempty"`
+	S3Key          *string  `json:"-"`
+	ImageMimeType  *string  `json:"-"`
+	ImageFormat    *string  `json:"-"`
 	FormatType     string   `json:"-"`
+}
+
+type CreativeImage struct {
+	ID           string    `json:"image_id"`
+	UserID       string    `json:"-"`
+	CampaignID   string    `json:"campaign_id"`
+	CreativeID   *string   `json:"creative_id,omitempty"`
+	S3Key        string    `json:"-"`
+	WebURL       string    `json:"image_url"`
+	OriginalName string    `json:"filename"`
+	MimeType     string    `json:"mime_type"`
+	FileFormat   string    `json:"file_format"`
+	SizeBytes    int64     `json:"size_bytes"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type TopupStatus string

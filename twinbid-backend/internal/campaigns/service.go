@@ -3,6 +3,7 @@ package campaigns
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,8 @@ type Service struct {
 	repo         *Repository
 	creativeRepo interface {
 		ListByCampaign(ctx context.Context, userID, campaignID string) ([]models.Creative, error)
+		ListImagesByCampaign(ctx context.Context, userID, campaignID string) ([]models.CreativeImage, error)
+		DeleteImageRecord(ctx context.Context, imageID string) error
 	}
 	profileRepo *profile.Repository
 	notifySvc   *notifications.Service
@@ -30,6 +33,8 @@ type Service struct {
 
 func NewService(repo *Repository, creativeRepo interface {
 	ListByCampaign(ctx context.Context, userID, campaignID string) ([]models.Creative, error)
+	ListImagesByCampaign(ctx context.Context, userID, campaignID string) ([]models.CreativeImage, error)
+	DeleteImageRecord(ctx context.Context, imageID string) error
 }, profileRepo *profile.Repository, notifySvc *notifications.Service, smtpCfg config.SMTPConfig, botCfg config.BotConfig, s3 *storage.S3Storage) *Service {
 	return &Service{
 		repo:         repo,
@@ -172,17 +177,13 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 			}
 
 			imageURL := ""
-			if cr.S3FilePath != nil && *cr.S3FilePath != "" {
-				url, err := s.s3.PresignGet(ctx, *cr.S3FilePath)
-				if err != nil {
-					return models.Campaign{}, fmt.Errorf("presign creative image: %w", err)
-				}
-				imageURL = url
+			if cr.ImageURL != nil {
+				imageURL = *cr.ImageURL
 			}
 
 			creativesPayload = append(creativesPayload, bot.CreativePayload{
 				CreativeName: cr.CreativeName,
-				URL:          cr.Link,
+				ADM:          cr.ADM,
 				Macros:       macros,
 				ImageURL:     imageURL,
 				Title:        title,
@@ -260,7 +261,25 @@ func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, campai
 }
 
 func (s *Service) Delete(ctx context.Context, userID, campaignID string) error {
-	return s.repo.Delete(ctx, userID, campaignID)
+	images, err := s.creativeRepo.ListImagesByCampaign(ctx, userID, campaignID)
+	if err != nil {
+		return fmt.Errorf("list campaign images: %w", err)
+	}
+	if err := s.repo.Delete(ctx, userID, campaignID); err != nil {
+		return err
+	}
+
+	var cleanupErrors []error
+	for _, image := range images {
+		if err := s.s3.Delete(ctx, image.S3Key); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete campaign image %s from s3: %w", image.ID, err))
+			continue
+		}
+		if err := s.creativeRepo.DeleteImageRecord(ctx, image.ID); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete campaign image record %s: %w", image.ID, err))
+		}
+	}
+	return errors.Join(cleanupErrors...)
 }
 
 func validateCampaign(c models.Campaign) error {
