@@ -98,11 +98,115 @@ func TestInspectImageUsesActualContentType(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, mimeType, extension, err := inspectImage(file)
+	_, mimeType, extension, err := inspectCreativeMedia(file, "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if mimeType != "image/png" || extension != "png" {
 		t.Fatalf("got mime=%q extension=%q", mimeType, extension)
+	}
+}
+
+func TestInspectCreativeMediaPreservesJPEGAlias(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "creative-*.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	jpegHeader := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0x01}
+	if _, err := file.Write(jpegHeader); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	_, mimeType, extension, err := inspectCreativeMedia(file, "image/jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mimeType != "image/jpg" || extension != "jpg" {
+		t.Fatalf("got mime=%q extension=%q", mimeType, extension)
+	}
+}
+
+func TestInspectCreativeMediaAcceptsMP4(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "creative-*.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	mp4Header := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0x00, 0x00, 0x00, 0x01, 'i', 's', 'o', 'm'}
+	if _, err := file.Write(mp4Header); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	_, mimeType, extension, err := inspectCreativeMedia(file, "video/mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mimeType != "video/mp4" || extension != "mp4" {
+		t.Fatalf("got mime=%q extension=%q", mimeType, extension)
+	}
+}
+
+func TestInspectCreativeMediaEnforcesPerTypeLimits(t *testing.T) {
+	t.Run("image limit", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "creative-*.png")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		pngHeader := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+		if _, err := file.Write(pngHeader); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Truncate(maxCreativeImageSize + 1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Seek(0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := inspectCreativeMedia(file, "image/png"); err == nil {
+			t.Fatal("expected oversized image to be rejected")
+		}
+	})
+
+	t.Run("video limit", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "creative-*.mp4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		mp4Header := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}
+		if _, err := file.Write(mp4Header); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Truncate(maxCreativeVideoSize + 1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Seek(0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := inspectCreativeMedia(file, "video/mp4"); err == nil {
+			t.Fatal("expected oversized MP4 to be rejected")
+		}
+	})
+}
+
+func TestValidateCreativeMediaFormat(t *testing.T) {
+	if err := validateCreativeMediaFormat("banner", "video/mp4"); err != nil {
+		t.Fatalf("banner MP4 was rejected: %v", err)
+	}
+	if err := validateCreativeMediaFormat("native", "video/mp4"); err == nil {
+		t.Fatal("native MP4 must be rejected")
+	}
+	if err := validateCreativeMediaFormat("push", "image/png"); err != nil {
+		t.Fatalf("push image was rejected: %v", err)
 	}
 }

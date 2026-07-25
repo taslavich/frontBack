@@ -17,7 +17,11 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxCreativeImageSize int64 = 64 << 20
+const (
+	maxCreativeImageSize  int64 = 1 << 20
+	maxCreativeVideoSize  int64 = 10 << 20
+	maxCreativeUploadSize       = maxCreativeVideoSize
+)
 
 type Service struct {
 	repo             *Repository
@@ -51,8 +55,15 @@ func (s *Service) UploadImage(ctx context.Context, userID, campaignID string, fi
 		return models.CreativeImage{}, httpx.BadRequest("file is required")
 	}
 
-	sizeBytes, mimeType, extension, err := inspectImage(file)
+	declaredMimeType := ""
+	if header != nil {
+		declaredMimeType = header.Header.Get("Content-Type")
+	}
+	sizeBytes, mimeType, extension, err := inspectCreativeMedia(file, declaredMimeType)
 	if err != nil {
+		return models.CreativeImage{}, err
+	}
+	if err := validateCreativeMediaFormat(campaign.FormatType, mimeType); err != nil {
 		return models.CreativeImage{}, err
 	}
 	if filename == "" {
@@ -311,41 +322,82 @@ func validateCreative(creative models.Creative) error {
 	return nil
 }
 
-func inspectImage(file multipart.File) (size int64, mimeType, extension string, err error) {
+func validateCreativeMediaFormat(campaignFormat, mimeType string) error {
+	if strings.EqualFold(strings.TrimSpace(mimeType), "video/mp4") && campaignFormat != "banner" {
+		return httpx.BadRequest("MP4 is only allowed for banner creatives")
+	}
+	return nil
+}
+
+func inspectCreativeMedia(file multipart.File, declaredMimeType string) (size int64, mimeType, extension string, err error) {
 	size, err = file.Seek(0, io.SeekEnd)
 	if err != nil {
-		return 0, "", "", fmt.Errorf("determine image size: %w", err)
+		return 0, "", "", fmt.Errorf("determine creative media size: %w", err)
 	}
 	if size <= 0 {
-		return 0, "", "", httpx.BadRequest("image file is empty")
+		return 0, "", "", httpx.BadRequest("creative media file is empty")
 	}
-	if size > maxCreativeImageSize {
-		return 0, "", "", httpx.BadRequest("image file exceeds 64 MiB")
+	if size > maxCreativeUploadSize {
+		return 0, "", "", httpx.BadRequest("creative media file exceeds 10 MiB")
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return 0, "", "", fmt.Errorf("rewind image: %w", err)
+		return 0, "", "", fmt.Errorf("rewind creative media: %w", err)
 	}
 
 	header := make([]byte, 512)
 	readBytes, readErr := io.ReadFull(file, header)
 	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
-		return 0, "", "", fmt.Errorf("read image header: %w", readErr)
+		return 0, "", "", fmt.Errorf("read creative media header: %w", readErr)
 	}
-	mimeType = http.DetectContentType(header[:readBytes])
-	extensions := map[string]string{
-		"image/jpeg": "jpg",
-		"image/png":  "png",
-		"image/gif":  "gif",
-		"image/webp": "webp",
+	header = header[:readBytes]
+	detectedMimeType := http.DetectContentType(header)
+	declaredMimeType = normalizeDeclaredMimeType(declaredMimeType)
+
+	switch {
+	case detectedMimeType == "image/jpeg":
+		if size > maxCreativeImageSize {
+			return 0, "", "", httpx.BadRequest("image file exceeds 1 MiB")
+		}
+		mimeType = "image/jpeg"
+		if declaredMimeType == "image/jpg" || declaredMimeType == "image/jpeg" {
+			mimeType = declaredMimeType
+		}
+		extension = "jpg"
+	case detectedMimeType == "image/png":
+		if size > maxCreativeImageSize {
+			return 0, "", "", httpx.BadRequest("image file exceeds 1 MiB")
+		}
+		mimeType, extension = "image/png", "png"
+	case detectedMimeType == "image/gif":
+		if size > maxCreativeImageSize {
+			return 0, "", "", httpx.BadRequest("image file exceeds 1 MiB")
+		}
+		mimeType, extension = "image/gif", "gif"
+	case declaredMimeType == "video/mp4" && hasMP4FileTypeBox(header):
+		if size > maxCreativeVideoSize {
+			return 0, "", "", httpx.BadRequest("MP4 file exceeds 10 MiB")
+		}
+		mimeType, extension = "video/mp4", "mp4"
+	default:
+		return 0, "", "", httpx.BadRequest("unsupported creative media type; allowed: jpg, png, gif, mp4")
 	}
-	extension, ok := extensions[mimeType]
-	if !ok {
-		return 0, "", "", httpx.BadRequest("unsupported image type; allowed: jpeg, png, gif, webp")
-	}
+
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return 0, "", "", fmt.Errorf("rewind image: %w", err)
+		return 0, "", "", fmt.Errorf("rewind creative media: %w", err)
 	}
 	return size, mimeType, extension, nil
+}
+
+func normalizeDeclaredMimeType(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if semicolon := strings.IndexByte(value, ';'); semicolon >= 0 {
+		value = strings.TrimSpace(value[:semicolon])
+	}
+	return value
+}
+
+func hasMP4FileTypeBox(header []byte) bool {
+	return len(header) >= 12 && string(header[4:8]) == "ftyp"
 }
 
 func sanitizeFilename(filename, extension string) string {

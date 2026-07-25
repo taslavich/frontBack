@@ -27,9 +27,9 @@ func (h *Handler) ListByCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxCreativeImageSize+(1<<20))
-	if err := r.ParseMultipartForm(maxCreativeImageSize); err != nil {
-		httpx.Error(w, httpx.BadRequest("invalid multipart image upload: "+err.Error()))
+	r.Body = http.MaxBytesReader(w, r.Body, maxCreativeUploadSize+(1<<20))
+	if err := r.ParseMultipartForm(maxCreativeUploadSize); err != nil {
+		httpx.Error(w, httpx.BadRequest("invalid multipart creative media upload: "+err.Error()))
 		return
 	}
 	file, header, err := r.FormFile("file")

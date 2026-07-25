@@ -183,7 +183,10 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			END IF;
 		END $$;`,
 		`UPDATE creatives cr
-		 SET banner_type='img'
+		 SET banner_type=CASE
+			WHEN ltrim(cr.adm) LIKE '<%' THEN 'iframe'
+			ELSE 'img'
+		 END
 		 FROM campaigns c
 		 WHERE c.campaign_id=cr.campaign_id AND c.format_type='banner' AND cr.banner_type IS NULL;`,
 		`UPDATE creatives cr
@@ -204,6 +207,35 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 		);`,
+		`UPDATE creatives cr
+		 SET banner_type='iframe', updated_at=NOW()
+		 FROM campaigns c
+		 WHERE c.campaign_id=cr.campaign_id
+		   AND c.format_type='banner'
+		   AND cr.banner_type='img'
+		   AND cr.s3_file_path IS NOT NULL
+		   AND cr.s3_file_path<>''
+		   AND ltrim(cr.adm) LIKE '<%'
+		   AND cr.adm NOT LIKE '%/api/media/%';`,
+		`UPDATE creative_images ci
+		 SET creative_id=NULL, updated_at=NOW()
+		 FROM creatives cr
+		 JOIN campaigns c ON c.campaign_id=cr.campaign_id
+		 WHERE ci.creative_id=cr.id
+		   AND c.format_type='banner'
+		   AND cr.banner_type='iframe';`,
+		`UPDATE creative_images ci
+		 SET creative_id=cr.id, campaign_id=cr.campaign_id, updated_at=NOW()
+		 FROM creatives cr
+		 JOIN campaigns c ON c.campaign_id=cr.campaign_id
+		 WHERE ci.s3_key=cr.s3_file_path
+		   AND ci.creative_id IS NULL
+		   AND cr.s3_file_path IS NOT NULL
+		   AND cr.s3_file_path<>''
+		   AND (c.format_type<>'banner' OR cr.banner_type='img')
+		   AND NOT EXISTS (
+			SELECT 1 FROM creative_images occupied WHERE occupied.creative_id=cr.id
+		   );`,
 		`CREATE TABLE IF NOT EXISTS promocodes (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			promocode_text TEXT UNIQUE NOT NULL,
@@ -293,8 +325,11 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 				COALESCE(NULLIF(lower(cr.file_format), ''), 'bin') AS file_format
 			FROM creatives cr
 			JOIN campaigns c ON c.campaign_id=cr.campaign_id
-			LEFT JOIN creative_images ci ON ci.creative_id=cr.id
-			WHERE cr.s3_file_path IS NOT NULL AND cr.s3_file_path<>'' AND ci.id IS NULL
+			LEFT JOIN creative_images ci ON ci.creative_id=cr.id OR ci.s3_key=cr.s3_file_path
+			WHERE cr.s3_file_path IS NOT NULL
+			  AND cr.s3_file_path<>''
+			  AND ci.id IS NULL
+			  AND (c.format_type<>'banner' OR cr.banner_type='img')
 		)
 		INSERT INTO creative_images (
 			id, user_id, campaign_id, creative_id, s3_key, web_url, original_name,
@@ -304,20 +339,24 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			$1 || '/api/media/' || image_id::text,
 			original_name,
 			CASE file_format
-				WHEN 'jpg' THEN 'image/jpeg'
-				WHEN 'jpeg' THEN 'image/jpeg'
+				WHEN 'jpg' THEN 'image/jpg'
+				WHEN 'jpeg' THEN 'image/jpg'
 				WHEN 'png' THEN 'image/png'
 				WHEN 'gif' THEN 'image/gif'
-				WHEN 'webp' THEN 'image/webp'
+				WHEN 'mp4' THEN 'video/mp4'
 				ELSE 'application/octet-stream'
 			END,
 			file_format,
 			0
 		FROM legacy
-		ON CONFLICT (creative_id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`, baseURL)
 	if err != nil {
 		log.Printf("creative image backfill error: %v", err)
+		return err
+	}
+	if err := migrateLegacyBannerADM(ctx, db); err != nil {
+		log.Printf("legacy banner ADM migration error: %v", err)
 		return err
 	}
 	return nil

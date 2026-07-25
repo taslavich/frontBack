@@ -13,7 +13,7 @@ All JSON responses use the existing envelope:
 }
 ```
 
-## 1. Upload an image
+## 1. Upload creative media
 
 ```http
 POST /api/campaigns/{campaignID}/creative-images
@@ -23,11 +23,15 @@ Content-Type: multipart/form-data
 
 Form fields:
 
-- `file` — required image file;
+- `file` — required creative media file;
 - `filename` — optional display filename.
 
-Allowed actual MIME types: JPEG, PNG, GIF and WebP. Maximum size: 64 MiB.
-Popunder campaigns cannot upload images.
+Allowed formats and limits:
+
+- JPG/JPEG, PNG or GIF: maximum 1 MiB;
+- MP4: maximum 10 MiB and only for banner campaigns.
+
+Popunder campaigns cannot upload media.
 
 Response data:
 
