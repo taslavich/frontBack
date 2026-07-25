@@ -43,9 +43,26 @@ func TestValidateCreativeImageRules(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "native with image",
+			name: "native requires dimensions",
 			creative: models.Creative{CreativeName: "native", ADM: "markup", FormatType: "native",
 				ImageID: &imageID, Title: &title, Description: &description},
+			wantErr: true,
+		},
+		{
+			name: "native with image and dimensions",
+			creative: models.Creative{CreativeName: "native", ADM: "markup", FormatType: "native",
+				ImageID: &imageID, W: &w, H: &h, Title: &title, Description: &description},
+		},
+		{
+			name: "push requires dimensions",
+			creative: models.Creative{CreativeName: "push", ADM: "markup", FormatType: "push",
+				ImageID: &imageID, Title: &title, Description: &description},
+			wantErr: true,
+		},
+		{
+			name: "push with image and dimensions",
+			creative: models.Creative{CreativeName: "push", ADM: "markup", FormatType: "push",
+				ImageID: &imageID, W: &w, H: &h, Title: &title, Description: &description},
 		},
 		{
 			name: "popunder rejects image",

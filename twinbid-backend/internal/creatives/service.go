@@ -300,6 +300,9 @@ func validateCreative(creative models.Creative) error {
 		if creative.BannerType != nil {
 			return httpx.BadRequest("banner_type is only allowed for banner creatives")
 		}
+		if creative.W == nil || creative.H == nil {
+			return httpx.BadRequest("w and h are required for native and push creatives")
+		}
 		if creative.ImageID == nil {
 			return httpx.BadRequest("image_id is required for native and push creatives")
 		}
