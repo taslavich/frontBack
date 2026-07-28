@@ -44,6 +44,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			campaign_balance_notifications BOOLEAN NOT NULL DEFAULT true,
 			balance_treshold DECIMAL NOT NULL DEFAULT 100,
 			low_balance_notified BOOLEAN NOT NULL DEFAULT true,
+			antiperekrut_blocked BOOLEAN NOT NULL DEFAULT false,
 			verified BOOLEAN NOT NULL DEFAULT false,
 			password TEXT NOT NULL,
 			utm_source TEXT,
@@ -64,6 +65,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		END $$;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_total_dollars DECIMAL NOT NULL DEFAULT 0;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS cum_done_dollars DECIMAL NOT NULL DEFAULT 0;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS antiperekrut_blocked BOOLEAN NOT NULL DEFAULT false;`,
 		`CREATE TABLE IF NOT EXISTS refresh_tokens (
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			token TEXT PRIMARY KEY,

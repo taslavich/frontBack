@@ -91,5 +91,14 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 		}
 	}
 
-	return s.repo.UpdateTx(ctx, tx, userID, u)
+	updated, err := s.repo.UpdateTx(ctx, tx, userID, u)
+	if err != nil {
+		return models.User{}, err
+	}
+	if patch.BalanceDelta != nil && *patch.BalanceDelta > 0 {
+		if err := s.repo.ClearAntiPerekrutBlockedTx(ctx, tx, userID); err != nil {
+			return models.User{}, err
+		}
+	}
+	return updated, nil
 }

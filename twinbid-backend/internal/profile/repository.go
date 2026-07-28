@@ -46,6 +46,21 @@ func (r *Repository) get(ctx context.Context, q queryRunner, userID string, forU
 	return u, err
 }
 
+func (r *Repository) ClearAntiPerekrutBlockedTx(ctx context.Context, tx *sql.Tx, userID string) error {
+	result, err := tx.ExecContext(ctx, `
+		UPDATE users
+		SET antiperekrut_blocked = FALSE, updated_at = NOW()
+		WHERE id = $1 AND antiperekrut_blocked = TRUE
+	`, userID)
+	if err != nil {
+		return err
+	}
+	if _, err := result.RowsAffected(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *Repository) Update(ctx context.Context, userID string, u models.User) (models.User, error) {
 	return r.update(ctx, r.db, userID, u)
 }
