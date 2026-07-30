@@ -86,3 +86,21 @@ clickhouse-client --multiquery < clickhouse/traffic_volume_hourly.sql
 
 See `PATCH_TRAFFIC_ENDPOINTS.md` for the request/response contract and optional
 historical backfill instructions.
+
+
+## Internal campaign moderation
+
+The Telegram moderation bot applies a decision through the secret-protected endpoint:
+
+```http
+POST /internal/campaigns/{campaign_id}/moderation
+X-Bot-Secret: <BOT_INTERNAL_SECRET>
+Content-Type: application/json
+
+{"decision":"approve"}
+```
+
+Supported decisions are `approve` (`moderation` -> `waiting`) and `reject`
+(`moderation` -> `draft`). The campaign row is locked in the same transaction as
+the status change. If the current status is already `draft`, the endpoint returns
+`409 Conflict` with `Модерация уже отменена пользователем`.

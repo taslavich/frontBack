@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"twinbid-backend/internal/bot"
@@ -62,6 +63,62 @@ func (s *Service) Get(ctx context.Context, campaignID string) (models.Campaign, 
 }
 func (s *Service) GetFormat(ctx context.Context, campaignID string) (string, error) {
 	return s.repo.GetFormat(ctx, campaignID)
+}
+
+const (
+	moderationDecisionApprove = "approve"
+	moderationDecisionReject  = "reject"
+)
+
+func (s *Service) Moderate(ctx context.Context, campaignID, decision string) (models.Campaign, error) {
+	var oldStatus string
+	campaign, err := s.repo.UpdateLocked(ctx, campaignID, func(current *models.Campaign) error {
+		before := cloneCampaignForComparison(*current)
+		oldStatus = before.Status
+
+		if err := applyModerationDecision(current, decision); err != nil {
+			return err
+		}
+		if err := validateCampaign(*current); err != nil {
+			return err
+		}
+		if requiresTrafficReset(before, *current) {
+			current.TrafficResetVersion++
+		}
+		return nil
+	})
+	if err != nil {
+		return models.Campaign{}, fmt.Errorf("cannot moderate campaign: %w", err)
+	}
+
+	if oldStatus != campaign.Status {
+		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, campaign, oldStatus, campaign.Status); err != nil {
+			return models.Campaign{}, err
+		}
+	}
+	return campaign, nil
+}
+
+func applyModerationDecision(current *models.Campaign, decision string) error {
+	decision = strings.ToLower(strings.TrimSpace(decision))
+	if decision != moderationDecisionApprove && decision != moderationDecisionReject {
+		return httpx.BadRequest("decision must be approve or reject")
+	}
+
+	status := strings.ToLower(strings.TrimSpace(current.Status))
+	if status == "draft" {
+		return httpx.Conflict("Модерация уже отменена пользователем")
+	}
+	if status != "moderation" {
+		return httpx.Conflict("Кампания больше не находится на модерации")
+	}
+
+	if decision == moderationDecisionApprove {
+		current.Status = "waiting"
+	} else {
+		current.Status = "draft"
+	}
+	return nil
 }
 
 func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignRequest) (models.Campaign, error) {

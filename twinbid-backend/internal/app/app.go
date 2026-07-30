@@ -84,7 +84,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.Bot,
 		s3,
 	)
-	campaignHandler := campaigns.NewHandler(campaignSvc)
+	campaignHandler := campaigns.NewHandler(campaignSvc, cfg.Bot.InternalSecret)
 
 	creativeSvc := creatives.NewService(creativeRepo, campaignSvc, s3, cfg.PublicAPIBaseURL)
 	creativeHandler := creatives.NewHandler(creativeSvc)
@@ -264,6 +264,7 @@ func buildRouter(
 
 	r.Get("/api/media/{imageID}", creativeHandler.Media)
 	r.Head("/api/media/{imageID}", creativeHandler.Media)
+	r.Post("/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)

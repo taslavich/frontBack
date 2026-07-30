@@ -1,6 +1,7 @@
 package campaigns
 
 import (
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -8,9 +9,14 @@ import (
 	"twinbid-backend/internal/httpx"
 )
 
-type Handler struct{ svc *Service }
+type Handler struct {
+	svc       *Service
+	botSecret string
+}
 
-func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
+func NewHandler(svc *Service, botSecret string) *Handler {
+	return &Handler{svc: svc, botSecret: botSecret}
+}
 
 type listResponse struct {
 	Items any `json:"items"`
@@ -61,6 +67,33 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) Moderate(w http.ResponseWriter, r *http.Request) {
+	if !h.validBotSecret(r.Header.Get("X-Bot-Secret")) {
+		httpx.Error(w, httpx.Unauthorized("invalid X-Bot-Secret"))
+		return
+	}
+
+	var req ModerateCampaignRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.Error(w, err)
+		return
+	}
+
+	item, err := h.svc.Moderate(r.Context(), chi.URLParam(r, "id"), req.Decision)
+	if err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) validBotSecret(got string) bool {
+	if h.botSecret == "" || len(got) != len(h.botSecret) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(h.botSecret)) == 1
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {

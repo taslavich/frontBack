@@ -33,6 +33,10 @@ type UpsertCampaignRequest struct {
 	QualityType        string                    `json:"quality_type"`
 }
 
+type ModerateCampaignRequest struct {
+	Decision string `json:"decision"`
+}
+
 type PatchCampaignRequest struct {
 	CampaignName       *string                    `json:"campaign_name"`
 	FormatType         *string                    `json:"format_type"`
