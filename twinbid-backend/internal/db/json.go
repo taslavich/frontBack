@@ -21,22 +21,38 @@ func UnmarshalMacroMap(raw []byte) (models.MacroMap, error) {
 		return models.MacroMap{}, nil
 	}
 
-	var boolMap models.MacroMap
-	if err := json.Unmarshal(raw, &boolMap); err == nil {
-		if boolMap == nil {
-			boolMap = models.MacroMap{}
-		}
-		return boolMap, nil
-	}
-
-	var intMap models.TargetingMap
-	if err := json.Unmarshal(raw, &intMap); err != nil {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
 		return nil, fmt.Errorf("macro map json: %w", err)
 	}
 
-	out := make(models.MacroMap, len(intMap))
-	for key, value := range intMap {
-		out[key] = value != 0
+	out := make(models.MacroMap, len(values))
+	for key, value := range values {
+		var parameterName string
+		if err := json.Unmarshal(value, &parameterName); err == nil {
+			if parameterName != "" {
+				out[key] = parameterName
+			}
+			continue
+		}
+
+		var enabled bool
+		if err := json.Unmarshal(value, &enabled); err == nil {
+			if enabled {
+				out[key] = key
+			}
+			continue
+		}
+
+		var numeric int
+		if err := json.Unmarshal(value, &numeric); err == nil {
+			if numeric != 0 {
+				out[key] = key
+			}
+			continue
+		}
+
+		return nil, fmt.Errorf("macro map key %q has unsupported value %s", key, string(value))
 	}
 
 	return out, nil

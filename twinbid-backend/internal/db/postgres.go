@@ -157,6 +157,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+
 		`DO $$
 		BEGIN
 			IF EXISTS (
@@ -195,6 +196,43 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		 SET banner_type=NULL
 		 FROM campaigns c
 		 WHERE c.campaign_id=cr.campaign_id AND c.format_type<>'banner' AND cr.banner_type IS NOT NULL;`,
+		`ALTER TABLE creatives ADD COLUMN IF NOT EXISTS trackers_macros JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+		`WITH normalized AS (
+			SELECT c.id,
+				COALESCE((
+					SELECT jsonb_object_agg(
+						item.key,
+						CASE jsonb_typeof(item.value)
+							WHEN 'boolean' THEN to_jsonb(item.key)
+							WHEN 'number' THEN to_jsonb(item.key)
+							WHEN 'string' THEN to_jsonb(btrim(item.value #>> '{}'))
+						END
+					)
+					FROM jsonb_each(COALESCE(c.trackers_macros, '{}'::jsonb)) AS item
+					WHERE (jsonb_typeof(item.value) = 'boolean' AND item.value = 'true'::jsonb)
+					   OR (jsonb_typeof(item.value) = 'number' AND (item.value #>> '{}')::numeric <> 0)
+					   OR (jsonb_typeof(item.value) = 'string' AND btrim(item.value #>> '{}') <> '')
+				), '{}'::jsonb) AS macros
+			FROM creatives c
+		), migrated AS (
+			SELECT normalized.id,
+				CASE
+					WHEN c.format_type = 'banner' AND cr.banner_type = 'iframe'
+						THEN normalized.macros - 'click_id'
+					ELSE normalized.macros || jsonb_build_object(
+						'click_id',
+						COALESCE(NULLIF(btrim(normalized.macros ->> 'click_id'), ''), 'click_id')
+					)
+				END AS macros
+			FROM normalized
+			JOIN creatives cr ON cr.id = normalized.id
+			JOIN campaigns c ON c.campaign_id = cr.campaign_id
+		)
+		UPDATE creatives c
+		SET trackers_macros = migrated.macros
+		FROM migrated
+		WHERE c.id = migrated.id
+		  AND c.trackers_macros IS DISTINCT FROM migrated.macros;`,
 		`CREATE TABLE IF NOT EXISTS creative_images (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

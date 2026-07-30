@@ -227,3 +227,57 @@ func TestValidateCreativeMediaFormat(t *testing.T) {
 		t.Fatalf("push image was rejected: %v", err)
 	}
 }
+
+func TestTrackerMacrosUseUserParameterNames(t *testing.T) {
+	macros := nonNilMacroMap(models.MacroMap{
+		"site_id":      "source",
+		"country_code": "geo",
+		"click_id":     "subid",
+	})
+	if err := validateTrackerMacros(macros); err != nil {
+		t.Fatalf("valid macro map rejected: %v", err)
+	}
+	if macros["site_id"] != "source" || macros["click_id"] != "subid" {
+		t.Fatalf("unexpected normalized macros: %#v", macros)
+	}
+}
+
+func TestTrackerMacrosDefaultClickIDForLegacyRequests(t *testing.T) {
+	creative := models.Creative{FormatType: "popunder", TrackersMacros: models.MacroMap{"site_id": "site_id"}}
+	normalizeTrackerMacrosForCreative(&creative)
+	if creative.TrackersMacros["click_id"] != "click_id" {
+		t.Fatalf("click_id default got %q", creative.TrackersMacros["click_id"])
+	}
+}
+
+func TestTrackerMacrosRemainEmptyForIframeBanner(t *testing.T) {
+	iframe := "iframe"
+	creative := models.Creative{
+		FormatType:     "banner",
+		BannerType:     &iframe,
+		TrackersMacros: models.MacroMap{"click_id": "subid", "site_id": "source"},
+	}
+	normalizeTrackerMacrosForCreative(&creative)
+	if len(creative.TrackersMacros) != 0 {
+		t.Fatalf("iframe trackers_macros must stay empty: %#v", creative.TrackersMacros)
+	}
+}
+
+func TestTrackerMacrosRejectDuplicateParameterNames(t *testing.T) {
+	err := validateTrackerMacros(models.MacroMap{
+		"site_id":  "subid",
+		"click_id": "subid",
+	})
+	if err == nil {
+		t.Fatal("duplicate parameter names must be rejected")
+	}
+}
+
+func TestTrackerMacrosRejectUnknownKeysAndInvalidNames(t *testing.T) {
+	if err := validateTrackerMacros(models.MacroMap{"unknown": "value"}); err == nil {
+		t.Fatal("unknown macro key must be rejected")
+	}
+	if err := validateTrackerMacros(models.MacroMap{"site_id": "bad&name"}); err == nil {
+		t.Fatal("invalid query parameter name must be rejected")
+	}
+}

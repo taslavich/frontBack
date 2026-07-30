@@ -3,7 +3,7 @@ package models
 import "time"
 
 type TargetingMap map[string]int
-type MacroMap map[string]bool
+type MacroMap map[string]string
 
 type TargetingFilter struct {
 	IsWhiteList bool     `json:"isWhiteList"`

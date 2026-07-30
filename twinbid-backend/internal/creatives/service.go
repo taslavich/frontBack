@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"twinbid-backend/internal/campaigns"
@@ -125,6 +126,7 @@ func (s *Service) Create(ctx context.Context, userID, campaignID string, req Cre
 		ImageID:        imageID,
 		FormatType:     campaign.FormatType,
 	}
+	normalizeTrackerMacrosForCreative(&creative)
 	if err := validateCreative(creative); err != nil {
 		return models.Creative{}, err
 	}
@@ -179,6 +181,7 @@ func (s *Service) Patch(ctx context.Context, userID, creativeID string, req Patc
 		}
 	}
 
+	normalizeTrackerMacrosForCreative(&current)
 	if err := validateCreative(current); err != nil {
 		return models.Creative{}, err
 	}
@@ -277,6 +280,9 @@ func validateCreative(creative models.Creative) error {
 	}
 	if creative.H != nil && *creative.H <= 0 {
 		return httpx.BadRequest("h must be greater than zero")
+	}
+	if err := validateTrackerMacros(creative.TrackersMacros); err != nil {
+		return err
 	}
 
 	switch creative.FormatType {
@@ -430,9 +436,60 @@ func isIframeBanner(creative models.Creative) bool {
 	return creative.FormatType == "banner" && creative.BannerType != nil && *creative.BannerType == "iframe"
 }
 
-func nonNilMacroMap(value models.MacroMap) models.MacroMap {
-	if value == nil {
-		return models.MacroMap{}
+var trackerParameterNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.~-]+$`)
+
+var supportedTrackerMacroKeys = map[string]struct{}{
+	"click_id":     {},
+	"device":       {},
+	"browser":      {},
+	"site_id":      {},
+	"device_os":    {},
+	"ip_address":   {},
+	"campaign_id":  {},
+	"creative_id":  {},
+	"country_code": {},
+}
+
+func validateTrackerMacros(value models.MacroMap) error {
+	seenNames := make(map[string]string, len(value))
+	for rawKey, rawName := range value {
+		key := strings.TrimSpace(rawKey)
+		name := strings.TrimSpace(rawName)
+		if _, ok := supportedTrackerMacroKeys[key]; !ok {
+			return httpx.BadRequest(fmt.Sprintf("unsupported tracker macro %q", rawKey))
+		}
+		if name == "" {
+			return httpx.BadRequest(fmt.Sprintf("tracker macro %q parameter name is required", key))
+		}
+		if !trackerParameterNamePattern.MatchString(name) {
+			return httpx.BadRequest(fmt.Sprintf("tracker macro %q has invalid parameter name", key))
+		}
+		if previousKey, exists := seenNames[name]; exists && previousKey != key {
+			return httpx.BadRequest("tracker macro parameter names must be unique")
+		}
+		seenNames[name] = key
 	}
-	return value
+	return nil
+}
+
+func nonNilMacroMap(value models.MacroMap) models.MacroMap {
+	out := make(models.MacroMap, len(value))
+	for key, parameterName := range value {
+		out[strings.TrimSpace(key)] = strings.TrimSpace(parameterName)
+	}
+	return out
+}
+
+func normalizeTrackerMacrosForCreative(creative *models.Creative) {
+	if creative == nil {
+		return
+	}
+	creative.TrackersMacros = nonNilMacroMap(creative.TrackersMacros)
+	if isIframeBanner(*creative) {
+		creative.TrackersMacros = models.MacroMap{}
+		return
+	}
+	if strings.TrimSpace(creative.TrackersMacros["click_id"]) == "" {
+		creative.TrackersMacros["click_id"] = "click_id"
+	}
 }
