@@ -93,7 +93,7 @@ historical backfill instructions.
 The Telegram moderation bot applies a decision through the secret-protected endpoint:
 
 ```http
-POST /internal/campaigns/{campaign_id}/moderation
+POST /api/internal/campaigns/{campaign_id}/moderation
 X-Bot-Secret: <BOT_INTERNAL_SECRET>
 Content-Type: application/json
 

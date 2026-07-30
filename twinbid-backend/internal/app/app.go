@@ -264,7 +264,7 @@ func buildRouter(
 
 	r.Get("/api/media/{imageID}", creativeHandler.Media)
 	r.Head("/api/media/{imageID}", creativeHandler.Media)
-	r.Post("/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
+	r.Post("/api/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)
