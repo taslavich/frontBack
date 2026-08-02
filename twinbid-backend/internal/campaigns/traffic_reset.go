@@ -1,6 +1,7 @@
 package campaigns
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -8,6 +9,11 @@ import (
 )
 
 func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
+	budgetInputsChanged := req.GoalTotalDollars != nil ||
+		req.BasePrice != nil ||
+		req.PricingModel != nil ||
+		req.FormatType != nil
+
 	if req.CampaignName != nil {
 		current.CampaignName = *req.CampaignName
 	}
@@ -46,9 +52,6 @@ func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
 	}
 	if req.GoalTotalDollars != nil {
 		current.GoalTotalDollars = *req.GoalTotalDollars
-		if current.GoalTotalDollars > current.CumDoneDollars {
-			current.NoBudgetNotified = false
-		}
 	}
 	if req.CumDoneDollars != nil {
 		current.CumDoneDollars = *req.CumDoneDollars
@@ -83,8 +86,36 @@ func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
 	if req.IP != nil {
 		current.IP = cloneFilterForStorage(*req.IP)
 	}
+	if budgetInputsChanged && hasBudgetForNextCharge(*current) {
+		current.NoBudgetNotified = false
+	}
 	if req.NoBudgetNotified != nil {
 		current.NoBudgetNotified = *req.NoBudgetNotified
+	}
+}
+
+func hasBudgetForNextCharge(campaign models.Campaign) bool {
+	chargePrice, ok := campaignChargePrice(campaign)
+	if !ok {
+		return false
+	}
+	return campaign.GoalTotalDollars-campaign.CumDoneDollars >= chargePrice
+}
+
+func campaignChargePrice(campaign models.Campaign) (float64, bool) {
+	if campaign.BasePrice <= 0 || math.IsNaN(campaign.BasePrice) || math.IsInf(campaign.BasePrice, 0) {
+		return 0, false
+	}
+	switch normalizedString(campaign.PricingModel) {
+	case "cpm":
+		return campaign.BasePrice / 1000, true
+	case "cpc":
+		if normalizedString(campaign.FormatType) == "popunder" {
+			return campaign.BasePrice / 1000, true
+		}
+		return campaign.BasePrice, true
+	default:
+		return 0, false
 	}
 }
 

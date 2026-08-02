@@ -36,7 +36,17 @@ func (r *Repository) EnsureAutomatic(ctx context.Context, userID string) error {
 		WHERE c.user_id=$1
 		  AND u.campaign_balance_notifications = true
 		  AND c.goal_total_dollars > 0
-		  AND c.cum_done_dollars >= c.goal_total_dollars
+		  AND (c.goal_total_dollars - c.cum_done_dollars) <
+			  CASE
+				  WHEN LOWER(TRIM(c.pricing_model)) = 'cpm'
+					  THEN c.base_price / 1000
+				  WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
+					   AND LOWER(TRIM(c.format_type)) = 'popunder'
+					  THEN c.base_price / 1000
+				  WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
+					  THEN c.base_price
+				  ELSE NULL
+			  END
 		  AND c.status IN ('active', 'moderation')
 		  AND NOT EXISTS (
 			SELECT 1 FROM notifications n WHERE n.user_id=c.user_id AND n.campaign_id=c.campaign_id AND n.text='Low campaign balance' AND n.status='active'

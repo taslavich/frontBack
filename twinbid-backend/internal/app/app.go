@@ -124,7 +124,18 @@ func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campa
 				SELECT c.user_id, c.campaign_id
 				FROM campaigns c
 				WHERE c.goal_total_dollars > 0
-				  AND c.cum_done_dollars >= c.goal_total_dollars
+				  AND c.status = 'active'
+				  AND (c.goal_total_dollars - c.cum_done_dollars) <
+					  CASE
+						  WHEN LOWER(TRIM(c.pricing_model)) = 'cpm'
+							  THEN c.base_price / 1000
+						  WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
+							   AND LOWER(TRIM(c.format_type)) = 'popunder'
+							  THEN c.base_price / 1000
+						  WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
+							  THEN c.base_price
+						  ELSE NULL
+					  END
 				  AND c.no_budget_notified = false
 			`)
 			if err != nil {
