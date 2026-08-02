@@ -17,6 +17,9 @@ type fakeRepository struct {
 	calculatorResp CalculatorResponse
 	recommendResp  RecommendBidResponse
 	trafficErr     error
+
+	cumulativeSpendResp []CumulativeSpendTotal
+	cumulativeSpendErr  error
 }
 
 func (f *fakeRepository) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
@@ -33,6 +36,10 @@ func (f *fakeRepository) Calculator(ctx context.Context, req TrafficSegmentReque
 func (f *fakeRepository) RecommendBid(ctx context.Context, req TrafficSegmentRequest) (RecommendBidResponse, error) {
 	f.gotTrafficReq = req
 	return f.recommendResp, f.trafficErr
+}
+
+func (f *fakeRepository) CumulativeSpend(ctx context.Context) ([]CumulativeSpendTotal, error) {
+	return f.cumulativeSpendResp, f.cumulativeSpendErr
 }
 
 func (f *fakeRepository) Close() error {
@@ -118,5 +125,22 @@ func TestServiceRecommendBidDelegatesToRepository(t *testing.T) {
 	}
 	if repo.gotTrafficReq.TrafficType != "adult" || resp.AverageBid != 0.25 {
 		t.Fatalf("unexpected delegation: req=%#v resp=%#v", repo.gotTrafficReq, resp)
+	}
+}
+
+func TestServiceCumulativeSpendDelegatesToRepository(t *testing.T) {
+	repo := &fakeRepository{
+		cumulativeSpendResp: []CumulativeSpendTotal{
+			{EntityType: "campaign", EntityID: testUserID, Amount: "1.25"},
+		},
+	}
+	svc := NewServiceWithRepository(repo)
+
+	totals, err := svc.CumulativeSpend(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(totals) != 1 || totals[0].Amount != "1.25" {
+		t.Fatalf("unexpected totals: %#v", totals)
 	}
 }

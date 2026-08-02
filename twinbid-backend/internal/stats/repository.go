@@ -114,6 +114,33 @@ func (r *ClickHouseRepository) Query(ctx context.Context, userID string, req Que
 	return QueryResponse{Rows: out, Totals: totals}, nil
 }
 
+func (r *ClickHouseRepository) CumulativeSpend(ctx context.Context) ([]CumulativeSpendTotal, error) {
+	query, err := buildCumulativeSpendQuery(r.table)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	totals := make([]CumulativeSpendTotal, 0)
+	for rows.Next() {
+		var total CumulativeSpendTotal
+		if err := rows.Scan(&total.EntityType, &total.EntityID, &total.Amount); err != nil {
+			return nil, err
+		}
+		totals = append(totals, total)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return totals, nil
+}
+
 func (r *ClickHouseRepository) Calculator(
 	ctx context.Context,
 	req TrafficSegmentRequest,

@@ -60,7 +60,7 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 	if patch.BalanceDelta != nil {
 		// Backward-compatible API semantics: "balance" is an additive adjustment.
 		// After splitting the accounting fields, adjustments/topups increase only
-		// goal_total_dollars. cum_done_dollars is written by the spending pipeline.
+		// goal_total_dollars. cum_done_dollars is synchronized from ClickHouse agg_stats.
 		u.GoalTotalDollars += *patch.BalanceDelta
 		u.Balance = u.GoalTotalDollars - u.CumDoneDollars
 

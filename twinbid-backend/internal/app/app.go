@@ -16,6 +16,7 @@ import (
 	"twinbid-backend/internal/notifications"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
+	"twinbid-backend/internal/spendsync"
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
 	"twinbid-backend/internal/topups"
@@ -104,12 +105,61 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupHandler := topups.NewHandler(topupSvc)
 
 	statsHandler := stats.NewHandler(statsSvc)
+	spendSyncSvc := spendsync.NewService(pg, statsSvc)
+	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
+}
+
+func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *spendsync.Service) {
+	interval := cfg.SpendSync.Interval
+	if interval <= 0 {
+		log.Printf("stats spend sync disabled: invalid interval %s", interval)
+		return
+	}
+	timeout := cfg.SpendSync.Timeout
+	if timeout <= 0 {
+		timeout = interval
+	}
+
+	run := func() {
+		startedAt := time.Now()
+		syncCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+
+		result, err := service.Sync(syncCtx)
+		duration := time.Since(startedAt)
+		if err != nil {
+			log.Printf("stats spend sync error after %s: %v", duration, err)
+			return
+		}
+		log.Printf(
+			"stats spend sync completed: duration=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d",
+			duration,
+			result.SourceRows,
+			result.UserTotals,
+			result.CampaignTotals,
+			result.UpdatedUsers,
+			result.UpdatedCampaigns,
+		)
+	}
+
+	// Synchronize immediately after startup, then continue at the configured interval.
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campaignSvc *campaigns.Service) {

@@ -18,6 +18,7 @@ type Config struct {
 	ClickHouse       ClickHouseConfig
 	S3               S3Config
 	Notifications    NotificationsConfig
+	SpendSync        SpendSyncConfig
 	Bot              BotConfig
 	PublicAPIBaseURL string `env:"PUBLIC_API_BASE_URL" env-default:"http://localhost:8080"`
 
@@ -130,6 +131,11 @@ func Load(ctx context.Context) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+type SpendSyncConfig struct {
+	Interval time.Duration `env:"STATS_SPEND_SYNC_INTERVAL" env-default:"1m"`
+	Timeout  time.Duration `env:"STATS_SPEND_SYNC_TIMEOUT" env-default:"50s"`
 }
 
 type NotificationsConfig struct {
