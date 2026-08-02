@@ -47,5 +47,6 @@ GROUP BY GROUPING SETS
     (win_cid)
 )
 HAVING notEmpty(entity_id)
+   AND isNotNull(toUUIDOrNull(entity_id))
 ORDER BY entity_type, entity_id`, table), nil
 }
