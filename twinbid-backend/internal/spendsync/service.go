@@ -76,10 +76,7 @@ WITH incoming(id, cum_done_dollars) AS (
     SELECT * FROM unnest($1::uuid[], $2::numeric[])
 )
 UPDATE users AS u
-SET cum_done_dollars = GREATEST(
-    u.cum_done_dollars,
-    incoming.cum_done_dollars
-)
+SET cum_done_dollars = incoming.cum_done_dollars
 FROM incoming
 WHERE u.id = incoming.id`
 		execResult, err := tx.ExecContext(ctx, updateUsers, pq.Array(userIDs), pq.Array(userAmounts))
@@ -98,10 +95,7 @@ WITH incoming(id, cum_done_dollars) AS (
     SELECT * FROM unnest($1::uuid[], $2::numeric[])
 )
 UPDATE campaigns AS c
-SET cum_done_dollars = GREATEST(
-    c.cum_done_dollars,
-    incoming.cum_done_dollars
-)
+SET cum_done_dollars = incoming.cum_done_dollars
 FROM incoming
 WHERE c.campaign_id = incoming.id`
 		execResult, err := tx.ExecContext(ctx, updateCampaigns, pq.Array(campaignIDs), pq.Array(campaignAmounts))
