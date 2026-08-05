@@ -105,3 +105,6 @@ func NotFound(message string) HTTPError {
 func Conflict(message string) HTTPError {
 	return HTTPError{Status: http.StatusConflict, Code: "conflict", Message: message}
 }
+func ServiceUnavailable(message string) HTTPError {
+	return HTTPError{Status: http.StatusServiceUnavailable, Code: "service_unavailable", Message: message}
+}

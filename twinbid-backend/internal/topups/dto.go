@@ -2,20 +2,28 @@ package topups
 
 import "encoding/json"
 
+const (
+	PaymentChannelStaticWallet     = "static_wallet"
+	PaymentChannelPassimPayInvoice = "passimpay_invoice"
+)
+
 type CreateTopupRequest struct {
+	PaymentChannel  string  `json:"payment_channel,omitempty"`
 	PaymentMethod   string  `json:"payment_method"`
 	DepositAmount   float64 `json:"deposit_amount"`
 	Currency        string  `json:"currency"`
 	PromocodeID     *string `json:"promocode_id"`
-	BonusAmount     float64 `json:"bonus_amount"`
-	TransactionHash *string `json:"transaction_hash"`
-	Status          string  `json:"status"`
+	BonusAmount     float64 `json:"bonus_amount,omitempty"`
+	TransactionHash *string `json:"transaction_hash,omitempty"`
+	Status          string  `json:"status,omitempty"`
 }
 
 type AdminTopupActionRequest struct {
 	UserID string `json:"user_id"`
 }
 
+// PatchTopupRequest remains backward-compatible with the current frontend payload,
+// but the service only accepts transaction_hash for static-wallet payments.
 type PatchTopupRequest struct {
 	TransactionID        *string  `json:"transaction_id,omitempty"`
 	PaymentMethod        *string  `json:"payment_method,omitempty"`

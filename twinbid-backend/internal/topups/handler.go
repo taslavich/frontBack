@@ -1,6 +1,8 @@
 package topups
 
 import (
+	"crypto/subtle"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -8,9 +10,16 @@ import (
 	"twinbid-backend/internal/httpx"
 )
 
-type Handler struct{ svc *Service }
+const maxWebhookBody = 1 << 20
 
-func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
+type Handler struct {
+	svc       *Service
+	botSecret string
+}
+
+func NewHandler(svc *Service, botSecret string) *Handler {
+	return &Handler{svc: svc, botSecret: botSecret}
+}
 
 type listResponse struct {
 	Items any `json:"items"`
@@ -58,15 +67,6 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, item)
 }
 
-func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
-	item, err := h.svc.Approve(r.Context(), auth.UserID(r), chi.URLParam(r, "id"))
-	if err != nil {
-		httpx.Error(w, err)
-		return
-	}
-	httpx.JSON(w, http.StatusOK, item)
-}
-
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	var req PatchTopupRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -82,6 +82,11 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CancelAdmin(w http.ResponseWriter, r *http.Request) {
+	if !h.validBotSecret(r.Header.Get("X-Bot-Secret")) {
+		httpx.Error(w, httpx.Forbidden("invalid X-Bot-Secret"))
+		return
+	}
+
 	var req AdminTopupActionRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.Error(w, err)
@@ -101,6 +106,11 @@ func (h *Handler) CancelAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ApproveAdmin(w http.ResponseWriter, r *http.Request) {
+	if !h.validBotSecret(r.Header.Get("X-Bot-Secret")) {
+		httpx.Error(w, httpx.Forbidden("invalid X-Bot-Secret"))
+		return
+	}
+
 	var req AdminTopupActionRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.Error(w, err)
@@ -117,4 +127,29 @@ func (h *Handler) ApproveAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) PassimPayWebhook(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody+1))
+	if err != nil {
+		httpx.Error(w, httpx.BadRequest("cannot read webhook body"))
+		return
+	}
+	if len(body) > maxWebhookBody {
+		httpx.Error(w, httpx.BadRequest("webhook body is too large"))
+		return
+	}
+	if err := h.svc.HandlePassimPayWebhook(r.Context(), body, r.Header.Get("x-signature")); err != nil {
+		httpx.Error(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) validBotSecret(got string) bool {
+	if h.botSecret == "" || len(got) != len(h.botSecret) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(h.botSecret)) == 1
 }

@@ -31,6 +31,11 @@ func (r *Repository) IncrementUsage(ctx context.Context, promocodeID string) err
 	return err
 }
 
+func (r *Repository) IncrementUsageTx(ctx context.Context, tx *sql.Tx, promocodeID string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE promocodes SET usage_count = usage_count + 1 WHERE id=$1`, promocodeID)
+	return err
+}
+
 type scanner interface{ Scan(dest ...any) error }
 
 func scanPromocode(s scanner) (models.Promocode, error) {

@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type TargetingMap map[string]int
 type MacroMap map[string]string
@@ -118,20 +121,32 @@ const (
 )
 
 type UserTransaction struct {
-	ID                   string      `json:"id"`
-	UserID               string      `json:"user_id"`
-	TransactionTime      time.Time   `json:"transaction_time"`
-	TransactionID        string      `json:"transaction_id"`
-	PaymentMethod        string      `json:"payment_method"`
-	BonusAmount          float64     `json:"bonus_amount"`
-	PromocodeID          *string     `json:"promocode_id"`
-	TransactionHash      *string     `json:"transaction_hash"`
-	DepositAmount        float64     `json:"deposit_amount"`
-	TotalBalanceIncrease float64     `json:"total_balance_increase"`
-	Status               TopupStatus `json:"status"`
-	Currency             string      `json:"currency"`
-	CreatedAt            time.Time   `json:"created_at"`
-	UpdatedAt            time.Time   `json:"updated_at"`
+	ID                    string          `json:"id"`
+	UserID                string          `json:"user_id"`
+	TransactionTime       time.Time       `json:"transaction_time"`
+	TransactionID         string          `json:"transaction_id"`
+	PaymentChannel        string          `json:"payment_channel"`
+	PaymentMethod         string          `json:"payment_method"`
+	BonusAmount           float64         `json:"bonus_amount"`
+	PromocodeID           *string         `json:"promocode_id"`
+	PromocodeUsageApplied bool            `json:"-"`
+	TransactionHash       *string         `json:"transaction_hash"`
+	DepositAmount         float64         `json:"deposit_amount"`
+	TotalBalanceIncrease  float64         `json:"total_balance_increase"`
+	Status                TopupStatus     `json:"status"`
+	Currency              string          `json:"currency"`
+	PaymentURL            *string         `json:"payment_url,omitempty"`
+	ProviderStatus        *string         `json:"provider_status,omitempty"`
+	ProviderPaymentID     *string         `json:"provider_payment_id,omitempty"`
+	ProviderTransactionID *string         `json:"provider_transaction_id,omitempty"`
+	AmountPaid            *float64        `json:"amount_paid,omitempty"`
+	AmountCredited        *float64        `json:"amount_credited,omitempty"`
+	FeeService            *float64        `json:"fee_service,omitempty"`
+	FeeNetwork            *float64        `json:"fee_network,omitempty"`
+	CreditedAt            *time.Time      `json:"credited_at,omitempty"`
+	ProviderPayload       json.RawMessage `json:"-"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 type Promocode struct {

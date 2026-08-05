@@ -14,6 +14,7 @@ import (
 	"twinbid-backend/internal/creatives"
 	"twinbid-backend/internal/db"
 	"twinbid-backend/internal/notifications"
+	"twinbid-backend/internal/passimpay"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 	"twinbid-backend/internal/spendsync"
@@ -93,6 +94,16 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	promoRepo := promocodes.NewRepository(pg)
 	promoSvc := promocodes.NewService(promoRepo)
 	promoHandler := promocodes.NewHandler(promoSvc)
+	passimPayClient := passimpay.NewClient(passimpay.Config{
+		BaseURL:           cfg.PassimPay.BaseURL,
+		PlatformID:        cfg.PassimPay.PlatformID,
+		APIKey:            cfg.PassimPay.APIKey,
+		CreateInvoicePath: cfg.PassimPay.CreateInvoicePath,
+		CheckInvoicePath:  cfg.PassimPay.CheckInvoicePath,
+		InvoiceType:       cfg.PassimPay.InvoiceType,
+		CurrencyIDs:       cfg.PassimPay.CurrencyIDs,
+		Timeout:           cfg.PassimPay.Timeout,
+	})
 
 	topupSvc := topups.NewService(
 		topups.NewRepository(pg),
@@ -101,12 +112,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		profileRepo,
 		profileSvc,
 		cfg.Bot,
+		passimPayClient,
 	)
-	topupHandler := topups.NewHandler(topupSvc)
+	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret)
 
 	statsHandler := stats.NewHandler(statsSvc)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
+	go runPassimPayReconcileTicker(ctx, cfg.PassimPay.ReconcileInterval, topupSvc)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
@@ -249,6 +262,26 @@ func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc 
 	}
 }
 
+func runPassimPayReconcileTicker(ctx context.Context, interval time.Duration, svc *topups.Service) {
+	if interval <= 0 {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := svc.ReconcilePendingInvoices(ctx); err != nil {
+				log.Printf("PassimPay reconciliation error: %v", err)
+			}
+		}
+	}
+}
+
 func runCampaignCompletedTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campaignSvc *campaigns.Service) {
 	t := time.NewTicker(cfg.Notifications.CampaignCompletedCheckInterval)
 	defer t.Stop()
@@ -326,6 +359,7 @@ func buildRouter(
 	r.Get("/api/media/{imageID}", creativeHandler.Media)
 	r.Head("/api/media/{imageID}", creativeHandler.Media)
 	r.Post("/api/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
+	r.Post("/api/webhooks/passimpay", topupHandler.PassimPayWebhook)
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)
@@ -363,8 +397,10 @@ func buildRouter(
 		r.Get("/api/transactions/{id}", topupHandler.Get)
 		r.Patch("/api/transactions/{id}", topupHandler.Patch)
 		r.Post("/api/transactions/{id}/cancel", topupHandler.Cancel)
+
+		// Payment-bot callbacks require both a valid backend JWT (this group)
+		// and the shared X-Bot-Secret checked by the handler.
 		r.Post("/api/transactions/{id}/cancel_admin", topupHandler.CancelAdmin)
-		r.Post("/api/transactions/{id}/approve", topupHandler.Approve)
 		r.Post("/api/transactions/{id}/approve_admin", topupHandler.ApproveAdmin)
 
 		r.Get("/api/promocodes/{code}", promoHandler.GetByCode)
@@ -385,7 +421,7 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Accept")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Accept,X-Bot-Secret")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

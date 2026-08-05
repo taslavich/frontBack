@@ -302,6 +302,50 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS payment_channel TEXT NOT NULL DEFAULT 'static_wallet';`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS promocode_usage_applied BOOLEAN NOT NULL DEFAULT false;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS payment_url TEXT;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_status TEXT;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_payment_id TEXT;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS amount_paid DECIMAL;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS amount_credited DECIMAL;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS fee_service DECIMAL;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS fee_network DECIMAL;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS credited_at TIMESTAMP WITH TIME ZONE;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_payload JSONB;`,
+		`UPDATE user_transactions
+		 SET credited_at=COALESCE(updated_at, transaction_time, NOW())
+		 WHERE status='approved' AND credited_at IS NULL;`,
+		`UPDATE user_transactions SET payment_channel='static_wallet' WHERE payment_channel IS NULL OR payment_channel='';`,
+		`UPDATE user_transactions
+		 SET promocode_usage_applied=true
+		 WHERE promocode_id IS NOT NULL
+		   AND status IN ('pending','approved','rejected')
+		   AND promocode_usage_applied=false;`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.table_constraints
+				WHERE table_schema='public' AND table_name='user_transactions'
+				  AND constraint_name='check_user_transactions_payment_channel'
+			) THEN
+				ALTER TABLE user_transactions ADD CONSTRAINT check_user_transactions_payment_channel
+				CHECK (payment_channel IN ('static_wallet','passimpay_invoice'));
+			END IF;
+		END $$;`,
+		`CREATE TABLE IF NOT EXISTS payment_webhook_events (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			provider TEXT NOT NULL,
+			order_id TEXT NOT NULL,
+			transaction_hash TEXT,
+			signature TEXT NOT NULL,
+			provider_status TEXT,
+			payload JSONB NOT NULL,
+			processing_error TEXT,
+			processed_at TIMESTAMP WITH TIME ZONE,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+		);`,
 		`CREATE TABLE IF NOT EXISTS notifications (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -328,6 +372,24 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON user_transactions(user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at_desc ON user_transactions(user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_promocode_status ON user_transactions(user_id, promocode_id, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_channel_status ON user_transactions(payment_channel, status, updated_at);`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT transaction_hash
+				FROM user_transactions
+				WHERE transaction_hash IS NOT NULL AND transaction_hash <> ''
+				GROUP BY transaction_hash HAVING COUNT(*) > 1
+			) THEN
+				CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_hash_unique
+				ON user_transactions(transaction_hash)
+				WHERE transaction_hash IS NOT NULL AND transaction_hash <> '';
+			ELSE
+				CREATE INDEX IF NOT EXISTS idx_transactions_hash
+				ON user_transactions(transaction_hash);
+			END IF;
+		END $$;`,
+		`CREATE INDEX IF NOT EXISTS idx_payment_webhook_events_order_created ON payment_webhook_events(order_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_campaign_id ON notifications(campaign_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user_created_at_desc ON notifications(user_id, created_at DESC);`,

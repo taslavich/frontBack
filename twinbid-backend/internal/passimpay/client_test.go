@@ -1,0 +1,121 @@
+package passimpay
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+func TestSignatureIsStableForCanonicalJSON(t *testing.T) {
+	payload := map[string]any{"platformId": int64(123), "orderId": "order-1", "amount": "10.00"}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := signature(123, body, "secret")
+	second := signature(123, body, "secret")
+	if first == "" || first != second {
+		t.Fatalf("unexpected signature: %q vs %q", first, second)
+	}
+}
+
+func TestCreateInvoiceSignsRequestAndVerifiesResponse(t *testing.T) {
+	const (
+		platformID = int64(123)
+		apiKey     = "secret"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/createorder" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Header.Get("x-signature"), signature(platformID, canonical, apiKey); got != want {
+			t.Fatalf("request signature=%q, want %q", got, want)
+		}
+		if payload["orderId"] != "order-1" || payload["amount"] != "10.00" || payload["symbol"] != "USD" {
+			t.Fatalf("unexpected payload: %#v", payload)
+		}
+
+		responseBody, _ := json.Marshal(map[string]any{
+			"result": 1,
+			"url":    "https://pay.example/invoice-1",
+			"status": "wait",
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-signature", signature(platformID, responseBody, apiKey))
+		_, _ = w.Write(responseBody)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL:    server.URL,
+		PlatformID: platformID,
+		APIKey:     apiKey,
+		Timeout:    time.Second,
+	})
+	result, err := client.CreateInvoice(context.Background(), "order-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PaymentURL != "https://pay.example/invoice-1" || result.ProviderStatus != "waiting" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestVerifyAndParseWebhook(t *testing.T) {
+	client := NewClient(Config{
+		BaseURL:    "https://api.example",
+		PlatformID: 123,
+		APIKey:     "secret",
+	})
+	body, _ := json.Marshal(map[string]any{
+		"type":          "deposit",
+		"platformId":    123,
+		"paymentId":     77,
+		"orderId":       "order-1",
+		"amount":        "10.0",
+		"amountReceive": "9.8",
+		"txhash":        "0xabc",
+	})
+	if err := client.VerifyPayload(body, signature(123, body, "secret")); err != nil {
+		t.Fatal(err)
+	}
+	status, orderID, err := client.ParseWebhook(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orderID != "order-1" || status.Status != "waiting" || status.TransactionHash != "0xabc" {
+		t.Fatalf("unexpected webhook result: order=%q status=%#v", orderID, status)
+	}
+	if status.AmountCredited == nil || *status.AmountCredited != 9.8 {
+		t.Fatalf("unexpected credited amount: %#v", status.AmountCredited)
+	}
+	if err := client.VerifyPayload(body, "invalid"); err == nil {
+		t.Fatal("expected invalid signature error")
+	}
+}
+
+func TestNormalizeStatus(t *testing.T) {
+	cases := map[string]string{
+		"paid":    "paid",
+		"wait":    "waiting",
+		"pending": "waiting",
+		"error":   "error",
+	}
+	for input, want := range cases {
+		if got := normalizeStatus(input); got != want {
+			t.Fatalf("normalizeStatus(%q)=%q, want %q", input, got, want)
+		}
+	}
+}

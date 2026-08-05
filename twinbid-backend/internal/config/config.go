@@ -19,6 +19,7 @@ type Config struct {
 	S3               S3Config
 	Notifications    NotificationsConfig
 	SpendSync        SpendSyncConfig
+	PassimPay        PassimPayConfig
 	Bot              BotConfig
 	PublicAPIBaseURL string `env:"PUBLIC_API_BASE_URL" env-default:"http://localhost:8080"`
 
@@ -81,6 +82,18 @@ type BotConfig struct {
 	BaseURL        string `env:"BOT_BASE_URL" env-default:"http://127.0.0.1:8090"`
 	InternalSecret string `env:"BOT_INTERNAL_SECRET" env-default:"change_me_secret"`
 }
+type PassimPayConfig struct {
+	BaseURL           string        `env:"PASSIMPAY_BASE_URL" env-default:"https://api.passimpay.io"`
+	PlatformID        int64         `env:"PASSIMPAY_PLATFORM_ID" env-default:"0"`
+	APIKey            string        `env:"PASSIMPAY_API_KEY" env-default:""`
+	CreateInvoicePath string        `env:"PASSIMPAY_CREATE_INVOICE_PATH" env-default:"/v2/createorder"`
+	CheckInvoicePath  string        `env:"PASSIMPAY_CHECK_INVOICE_PATH" env-default:"/v3/orderstatus"`
+	InvoiceType       int           `env:"PASSIMPAY_INVOICE_TYPE" env-default:"1"`
+	CurrencyIDs       string        `env:"PASSIMPAY_CURRENCY_IDS" env-default:""`
+	Timeout           time.Duration `env:"PASSIMPAY_TIMEOUT" env-default:"10s"`
+	ReconcileInterval time.Duration `env:"PASSIMPAY_RECONCILE_INTERVAL" env-default:"5m"`
+}
+
 
 type S3Config struct {
 	Endpoint     string `env:"S3_ENDPOINT" env-default:"http://127.0.0.1:9000"`
