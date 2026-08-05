@@ -39,6 +39,7 @@ type CreateInvoiceResult struct {
 }
 
 type InvoiceStatus struct {
+	PaymentURL            string
 	Status                string
 	ProviderPaymentID     string
 	ProviderTransactionID string
@@ -201,6 +202,7 @@ func (c *Client) ParseWebhook(raw []byte) (InvoiceStatus, string, error) {
 func ParseInvoiceStatus(payload map[string]any, raw []byte) InvoiceStatus {
 	status := normalizeStatus(firstString(payload, "status", "invoiceStatus", "invoice_status"))
 	return InvoiceStatus{
+		PaymentURL:            firstString(payload, "url", "paymentUrl", "payment_url", "link"),
 		Status:                status,
 		ProviderPaymentID:     firstString(payload, "paymentId", "payment_id"),
 		ProviderTransactionID: firstString(payload, "transactionId", "transaction_id", "invoiceId", "invoice_id"),

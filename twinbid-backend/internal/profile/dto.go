@@ -1,6 +1,9 @@
 package profile
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type PatchProfileRequest struct {
 	Login                        *string  `json:"login"`
@@ -9,18 +12,12 @@ type PatchProfileRequest struct {
 	Telegram                     *string  `json:"-"`
 	TelegramSet                  bool     `json:"-"`
 	ManagerTelegram              *string  `json:"manager_telegram"`
-	BalanceDelta                 *float64 `json:"balance"`
 	Timezone                     *string  `json:"timezone"`
 	EmailNotifications           *bool    `json:"email_notifications"`
 	CampaignStatusNotifications  *bool    `json:"campaign_status_notifications"`
 	LowBalanceNotifications      *bool    `json:"low_balance_notifications"`
 	CampaignBalanseNotifications *bool    `json:"campaign_balanse_notifications"`
 	BalanceTreshold              *float64 `json:"balance_treshold"`
-}
-
-type PatchProfileAdminRequest struct {
-	UserID string `json:"user_id"`
-	PatchProfileRequest
 }
 
 func (p *PatchProfileRequest) UnmarshalJSON(data []byte) error {
@@ -33,14 +30,17 @@ func (p *PatchProfileRequest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	if _, ok := raw["balance"]; ok {
+		return fmt.Errorf("balance cannot be changed through profile API")
+	}
 	if v, ok := raw["telegram"]; ok {
 		aux.TelegramSet = true
 		if string(v) != "null" {
-			var s string
-			if err := json.Unmarshal(v, &s); err != nil {
+			var value string
+			if err := json.Unmarshal(v, &value); err != nil {
 				return err
 			}
-			aux.Telegram = &s
+			aux.Telegram = &value
 		}
 	}
 	*p = PatchProfileRequest(aux)

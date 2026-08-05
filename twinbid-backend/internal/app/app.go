@@ -114,12 +114,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		cfg.Bot,
 		passimPayClient,
 	)
-	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret)
+	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret, cfg.Bot.AdminUserID)
 
 	statsHandler := stats.NewHandler(statsSvc)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
-	go runPassimPayReconcileTicker(ctx, cfg.PassimPay.ReconcileInterval, topupSvc)
+	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
@@ -262,7 +262,8 @@ func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc 
 	}
 }
 
-func runPassimPayReconcileTicker(ctx context.Context, interval time.Duration, svc *topups.Service) {
+func runPassimPayReconcileTicker(ctx context.Context, cfg config.PassimPayConfig, svc *topups.Service) {
+	interval := cfg.ReconcileInterval
 	if interval <= 0 {
 		return
 	}
@@ -275,7 +276,7 @@ func runPassimPayReconcileTicker(ctx context.Context, interval time.Duration, sv
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := svc.ReconcilePendingInvoices(ctx); err != nil {
+			if err := svc.ReconcilePendingInvoices(ctx, cfg.ReconcileBatchSize, cfg.ReconcileRequestDelay, cfg.ReconcileRetryDelay); err != nil {
 				log.Printf("PassimPay reconciliation error: %v", err)
 			}
 		}
@@ -378,7 +379,6 @@ func buildRouter(
 		r.Use(auth.Middleware(authSvc))
 		r.Get("/api/profile", profileHandler.Get)
 		r.Patch("/api/profile", profileHandler.Patch)
-		r.Patch("/api/profile_admin", profileHandler.PatchAdmin)
 
 		r.Get("/api/campaigns", campaignHandler.List)
 		r.Post("/api/campaigns", campaignHandler.Create)

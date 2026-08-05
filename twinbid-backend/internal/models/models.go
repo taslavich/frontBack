@@ -145,6 +145,9 @@ type UserTransaction struct {
 	FeeNetwork            *float64        `json:"fee_network,omitempty"`
 	CreditedAt            *time.Time      `json:"credited_at,omitempty"`
 	ProviderPayload       json.RawMessage `json:"-"`
+	ProviderCheckAttempts int             `json:"-"`
+	ProviderNextCheckAt   *time.Time      `json:"-"`
+	ProviderLastError     *string         `json:"-"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
 }

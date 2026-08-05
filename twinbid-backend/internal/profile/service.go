@@ -3,6 +3,7 @@ package profile
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"twinbid-backend/internal/models"
 )
@@ -57,17 +58,7 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 	if patch.ManagerTelegram != nil {
 		u.ManagerTelegram = *patch.ManagerTelegram
 	}
-	if patch.BalanceDelta != nil {
-		// Backward-compatible API semantics: "balance" is an additive adjustment.
-		// After splitting the accounting fields, adjustments/topups increase only
-		// goal_total_dollars. cum_done_dollars is synchronized from ClickHouse agg_stats.
-		u.GoalTotalDollars += *patch.BalanceDelta
-		u.Balance = u.GoalTotalDollars - u.CumDoneDollars
 
-		if u.Balance >= u.BalanceTreshold {
-			u.LowBalanceNotified = false
-		}
-	}
 	if patch.Timezone != nil {
 		u.Timezone = *patch.Timezone
 	}
@@ -95,10 +86,21 @@ func (s *Service) patch(ctx context.Context, tx *sql.Tx, userID string, patch Pa
 	if err != nil {
 		return models.User{}, err
 	}
-	if patch.BalanceDelta != nil && *patch.BalanceDelta > 0 {
-		if err := s.repo.ClearAntiPerekrutBlockedTx(ctx, tx, userID); err != nil {
-			return models.User{}, err
-		}
+	return updated, nil
+}
+
+// IncreaseBalanceTx is an internal accounting operation. It is deliberately
+// separate from PatchProfileRequest so no HTTP profile payload can alter funds.
+func (s *Service) IncreaseBalanceTx(ctx context.Context, tx *sql.Tx, userID string, amount float64) (models.User, error) {
+	if amount <= 0 {
+		return models.User{}, fmt.Errorf("balance increase must be positive")
+	}
+	updated, err := s.repo.IncreaseGoalTotalTx(ctx, tx, userID, amount)
+	if err != nil {
+		return models.User{}, err
+	}
+	if err := s.repo.ClearAntiPerekrutBlockedTx(ctx, tx, userID); err != nil {
+		return models.User{}, err
 	}
 	return updated, nil
 }

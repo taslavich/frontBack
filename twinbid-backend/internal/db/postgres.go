@@ -314,6 +314,9 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS fee_network DECIMAL;`,
 		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS credited_at TIMESTAMP WITH TIME ZONE;`,
 		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_payload JSONB;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_check_attempts INTEGER NOT NULL DEFAULT 0;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_next_check_at TIMESTAMP WITH TIME ZONE;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_last_error TEXT;`,
 		`UPDATE user_transactions
 		 SET credited_at=COALESCE(updated_at, transaction_time, NOW())
 		 WHERE status='approved' AND credited_at IS NULL;`,
@@ -321,8 +324,27 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`UPDATE user_transactions
 		 SET promocode_usage_applied=true
 		 WHERE promocode_id IS NOT NULL
-		   AND status IN ('pending','approved','rejected')
+		   AND status='approved'
 		   AND promocode_usage_applied=false;`,
+		`CREATE TABLE IF NOT EXISTS app_schema_migrations (
+			migration_key TEXT PRIMARY KEY,
+			applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+		);`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM app_schema_migrations
+				WHERE migration_key='normalize_promocode_reservations_v1'
+			) THEN
+				-- The previous migration marked pending/rejected rows as applied even
+				-- though the old service only incremented usage on final approval.
+				UPDATE user_transactions
+				SET promocode_usage_applied=false
+				WHERE promocode_id IS NOT NULL AND status<>'approved';
+				INSERT INTO app_schema_migrations (migration_key)
+				VALUES ('normalize_promocode_reservations_v1');
+			END IF;
+		END $$;`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (
@@ -373,6 +395,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_created_at_desc ON user_transactions(user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_promocode_status ON user_transactions(user_id, promocode_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_channel_status ON user_transactions(payment_channel, status, updated_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_passimpay_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='passimpay_invoice' AND credited_at IS NULL;`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (

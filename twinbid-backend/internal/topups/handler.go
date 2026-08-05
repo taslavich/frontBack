@@ -13,12 +13,13 @@ import (
 const maxWebhookBody = 1 << 20
 
 type Handler struct {
-	svc       *Service
-	botSecret string
+	svc        *Service
+	botSecret  string
+	botAdminID string
 }
 
-func NewHandler(svc *Service, botSecret string) *Handler {
-	return &Handler{svc: svc, botSecret: botSecret}
+func NewHandler(svc *Service, botSecret, botAdminID string) *Handler {
+	return &Handler{svc: svc, botSecret: botSecret, botAdminID: botAdminID}
 }
 
 type listResponse struct {
@@ -82,7 +83,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CancelAdmin(w http.ResponseWriter, r *http.Request) {
-	if !h.validBotSecret(r.Header.Get("X-Bot-Secret")) {
+	if !h.validBotRequest(r) {
 		httpx.Error(w, httpx.Forbidden("invalid X-Bot-Secret"))
 		return
 	}
@@ -106,7 +107,7 @@ func (h *Handler) CancelAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ApproveAdmin(w http.ResponseWriter, r *http.Request) {
-	if !h.validBotSecret(r.Header.Get("X-Bot-Secret")) {
+	if !h.validBotRequest(r) {
 		httpx.Error(w, httpx.Forbidden("invalid X-Bot-Secret"))
 		return
 	}
@@ -147,9 +148,12 @@ func (h *Handler) PassimPayWebhook(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *Handler) validBotSecret(got string) bool {
-	if h.botSecret == "" || len(got) != len(h.botSecret) {
+func (h *Handler) validBotRequest(r *http.Request) bool {
+	gotSecret := r.Header.Get("X-Bot-Secret")
+	if h.botSecret == "" || h.botAdminID == "" || len(gotSecret) != len(h.botSecret) {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(got), []byte(h.botSecret)) == 1
+	secretOK := subtle.ConstantTimeCompare([]byte(gotSecret), []byte(h.botSecret)) == 1
+	adminIDOK := subtle.ConstantTimeCompare([]byte(auth.UserID(r)), []byte(h.botAdminID)) == 1
+	return secretOK && adminIDOK
 }

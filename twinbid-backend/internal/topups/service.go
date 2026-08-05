@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"strings"
+	"time"
 
 	"twinbid-backend/internal/bot"
 	"twinbid-backend/internal/config"
@@ -64,8 +65,10 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 	if channel != PaymentChannelStaticWallet && channel != PaymentChannelPassimPayInvoice {
 		return models.UserTransaction{}, httpx.BadRequest("invalid payment_channel")
 	}
-	if req.DepositAmount <= 0 || math.IsNaN(req.DepositAmount) || math.IsInf(req.DepositAmount, 0) {
-		return models.UserTransaction{}, httpx.BadRequest("deposit_amount must be positive")
+
+	depositAmount, err := normalizeMoney(req.DepositAmount)
+	if err != nil {
+		return models.UserTransaction{}, err
 	}
 	if channel == PaymentChannelPassimPayInvoice && (s.passimPay == nil || !s.passimPay.Enabled()) {
 		return models.UserTransaction{}, httpx.ServiceUnavailable("PassimPay is not configured")
@@ -82,12 +85,9 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 	if currency == "" {
 		currency = "USD"
 	}
-
-	bonus, promocodeID, err := s.resolvePromocode(ctx, userID, req.PromocodeID)
-	if err != nil {
-		return models.UserTransaction{}, err
+	if channel == PaymentChannelPassimPayInvoice && currency != "USD" {
+		return models.UserTransaction{}, httpx.BadRequest("PassimPay invoice currency must be USD")
 	}
-	total := req.DepositAmount * (1 + bonus/100)
 
 	status := models.TopupPending
 	var transactionHash *string
@@ -98,7 +98,6 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		case "", string(models.TopupPending):
 			status = models.TopupPending
 		case string(models.TopupDraft):
-			// Backward-compatible with the existing frontend draft -> PATCH flow.
 			status = models.TopupDraft
 		default:
 			return models.UserTransaction{}, httpx.BadRequest("static-wallet topup can only be created as draft or pending")
@@ -109,24 +108,40 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		}
 	}
 
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+	defer tx.Rollback()
+
+	bonus, promocodeID, reserved, err := s.resolvePromocodeTx(ctx, tx, userID, req.PromocodeID)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+	total := roundMoney(depositAmount * (1 + bonus/100))
 	topup := models.UserTransaction{
-		UserID:               userID,
-		TransactionID:        NewTransactionID(),
-		PaymentChannel:       channel,
-		PaymentMethod:        paymentMethod,
-		BonusAmount:          bonus,
-		PromocodeID:          promocodeID,
-		TransactionHash:      transactionHash,
-		DepositAmount:        req.DepositAmount,
-		TotalBalanceIncrease: total,
-		Status:               status,
-		Currency:             currency,
+		UserID:                userID,
+		TransactionID:         NewTransactionID(),
+		PaymentChannel:        channel,
+		PaymentMethod:         paymentMethod,
+		BonusAmount:           bonus,
+		PromocodeID:           promocodeID,
+		PromocodeUsageApplied: reserved,
+		TransactionHash:       transactionHash,
+		DepositAmount:         depositAmount,
+		TotalBalanceIncrease:  total,
+		Status:                status,
+		Currency:              currency,
 	}
 
-	created, err := s.repo.Create(ctx, topup)
+	created, err := s.repo.CreateTx(ctx, tx, topup)
 	if err != nil {
 		return models.UserTransaction{}, fmt.Errorf("create transaction: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return models.UserTransaction{}, err
+	}
+
 	if channel == PaymentChannelStaticWallet {
 		if created.Status == models.TopupPending && created.TransactionHash != nil && strings.TrimSpace(*created.TransactionHash) != "" {
 			if err := s.sendPaymentModeration(ctx, created); err != nil {
@@ -139,10 +154,13 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 	invoice, err := s.passimPay.CreateInvoice(ctx, created.TransactionID, created.DepositAmount)
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{"error": err.Error()})
-		if markErr := s.repo.MarkInvoiceCreationFailed(ctx, userID, created.ID, payload); markErr != nil {
-			return models.UserTransaction{}, fmt.Errorf("create PassimPay invoice: %v; mark failed: %w", err, markErr)
+		nextCheckAt := time.Now().UTC().Add(time.Minute)
+		if markErr := s.repo.MarkInvoiceCreationUnknown(ctx, userID, created.ID, payload, nextCheckAt); markErr != nil {
+			return models.UserTransaction{}, fmt.Errorf("create PassimPay invoice: %v; mark unknown: %w", err, markErr)
 		}
-		return models.UserTransaction{}, fmt.Errorf("create PassimPay invoice: %w", err)
+		// A timeout does not prove that PassimPay did not create the invoice. Keep
+		// the local order pending and let reconciliation resolve it by orderId.
+		return s.repo.Get(ctx, userID, created.ID)
 	}
 
 	updated, err := s.repo.UpdateInvoiceCreated(
@@ -162,7 +180,34 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 }
 
 func (s *Service) Cancel(ctx context.Context, userID, id string) (models.UserTransaction, error) {
-	return s.repo.Cancel(ctx, userID, id)
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+	defer tx.Rollback()
+
+	current, err := s.repo.LockByUserAndIDTx(ctx, tx, userID, id)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+	if current.CreditedAt != nil || (current.Status != models.TopupDraft && current.Status != models.TopupPending) {
+		return models.UserTransaction{}, httpx.Conflict("topup cannot be cancelled")
+	}
+	cancelled, err := s.repo.CancelLockedTx(ctx, tx, current.ID)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+	// A PassimPay link may still be paid after local cancellation, so its promo
+	// reservation is retained until PassimPay reports a terminal error.
+	if current.PaymentChannel == PaymentChannelStaticWallet {
+		if err := s.releasePromocodeReservationTx(ctx, tx, current); err != nil {
+			return models.UserTransaction{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return models.UserTransaction{}, err
+	}
+	return cancelled, nil
 }
 
 func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRequest) (models.UserTransaction, error) {
@@ -254,19 +299,46 @@ func (s *Service) HandlePassimPayWebhook(ctx context.Context, raw []byte, receiv
 	return nil
 }
 
-func (s *Service) ReconcilePendingInvoices(ctx context.Context) error {
+func (s *Service) ReconcilePendingInvoices(ctx context.Context, limit int, requestDelay, retryDelay time.Duration) error {
 	if s.passimPay == nil || !s.passimPay.Enabled() {
 		return nil
 	}
-	items, err := s.repo.ListPendingInvoices(ctx, 100)
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if requestDelay < 0 {
+		requestDelay = 0
+	}
+	if retryDelay <= 0 {
+		retryDelay = 5 * time.Minute
+	}
+
+	items, err := s.repo.ListPendingInvoices(ctx, limit)
 	if err != nil {
 		return err
 	}
 	var firstErr error
-	for _, item := range items {
+	for index, item := range items {
+		if index > 0 && requestDelay > 0 {
+			timer := time.NewTimer(requestDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+
 		status, checkErr := s.passimPay.CheckInvoice(ctx, item.TransactionID)
 		if checkErr != nil {
 			log.Printf("PassimPay status check failed: order_id=%s error=%v", item.TransactionID, checkErr)
+			nextCheckAt := time.Now().UTC().Add(retryDelay)
+			if markErr := s.repo.MarkReconcileFailure(ctx, item.TransactionID, checkErr.Error(), nextCheckAt); markErr != nil {
+				log.Printf("PassimPay reconciliation failure state error: order_id=%s error=%v", item.TransactionID, markErr)
+			}
 			if firstErr == nil {
 				firstErr = checkErr
 			}
@@ -288,13 +360,35 @@ func (s *Service) applyProviderState(ctx context.Context, orderID string, state 
 		_, err := s.creditInvoice(ctx, orderID, state)
 		return err
 	case "error":
-		status := models.TopupRejected
-		_, err := s.repo.UpdateProviderState(ctx, orderID, state, &status)
-		return err
+		return s.rejectInvoice(ctx, orderID, state)
 	default:
 		_, err := s.repo.UpdateProviderState(ctx, orderID, state, nil)
 		return err
 	}
+}
+
+func (s *Service) rejectInvoice(ctx context.Context, orderID string, state ProviderState) error {
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	current, err := s.repo.LockByOrderIDTx(ctx, tx, orderID)
+	if err != nil {
+		return err
+	}
+	if current.CreditedAt != nil {
+		return nil
+	}
+	status := models.TopupRejected
+	if _, err := s.repo.UpdateProviderStateTx(ctx, tx, orderID, state, &status); err != nil {
+		return err
+	}
+	if err := s.releasePromocodeReservationTx(ctx, tx, current); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Service) creditInvoice(ctx context.Context, orderID string, state ProviderState) (models.UserTransaction, error) {
@@ -327,11 +421,8 @@ func (s *Service) creditLockedTopup(ctx context.Context, tx *sql.Tx, current mod
 	}
 
 	if current.PromocodeID != nil && *current.PromocodeID != "" && !current.PromocodeUsageApplied {
-		if err := s.promoRepo.IncrementUsageTx(ctx, tx, *current.PromocodeID); err != nil {
-			return models.UserTransaction{}, fmt.Errorf("increment promocode usage: %w", err)
-		}
-		if err := s.repo.MarkPromocodeUsageAppliedTx(ctx, tx, current.ID); err != nil {
-			return models.UserTransaction{}, fmt.Errorf("mark promocode usage: %w", err)
+		if err := s.reserveExistingPromocodeTx(ctx, tx, current); err != nil {
+			return models.UserTransaction{}, err
 		}
 	}
 
@@ -339,30 +430,89 @@ func (s *Service) creditLockedTopup(ctx context.Context, tx *sql.Tx, current mod
 	if err != nil {
 		return models.UserTransaction{}, fmt.Errorf("mark topup credited: %w", err)
 	}
-	if _, err := s.profileSvc.PatchTx(ctx, tx, current.UserID, profile.PatchProfileRequest{
-		BalanceDelta: floatPtr(current.TotalBalanceIncrease),
-	}); err != nil {
+	if _, err := s.profileSvc.IncreaseBalanceTx(ctx, tx, current.UserID, current.TotalBalanceIncrease); err != nil {
 		return models.UserTransaction{}, fmt.Errorf("increase user goal_total_dollars: %w", err)
 	}
 	return credited, nil
 }
 
-func (s *Service) resolvePromocode(ctx context.Context, userID string, code *string) (float64, *string, error) {
+func (s *Service) resolvePromocodeTx(ctx context.Context, tx *sql.Tx, userID string, code *string) (float64, *string, bool, error) {
 	if code == nil || strings.TrimSpace(*code) == "" {
-		return 0, nil, nil
+		return 0, nil, false, nil
 	}
-	promo, err := s.promoSvc.GetByCode(ctx, strings.TrimSpace(*code))
+	promo, err := s.promoRepo.GetByCodeForUpdateTx(ctx, tx, strings.TrimSpace(*code))
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, false, err
 	}
-	used, err := s.repo.UserUsedPromocode(ctx, userID, promo.ID)
+	if err := validatePromocode(promo); err != nil {
+		return 0, nil, false, err
+	}
+	if err := s.repo.LockPromocodeClaimTx(ctx, tx, userID, promo.ID); err != nil {
+		return 0, nil, false, err
+	}
+	used, err := s.repo.UserUsedPromocodeTx(ctx, tx, userID, promo.ID, "")
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, false, err
 	}
 	if used {
-		return 0, nil, httpx.BadRequest("promocode already used by this user")
+		return 0, nil, false, httpx.BadRequest("promocode already used by this user")
 	}
-	return promo.BonusPercent, &promo.ID, nil
+	if err := s.promoRepo.ReserveUsageTx(ctx, tx, promo.ID); err != nil {
+		return 0, nil, false, err
+	}
+	return promo.BonusPercent, &promo.ID, true, nil
+}
+
+func (s *Service) reserveExistingPromocodeTx(ctx context.Context, tx *sql.Tx, current models.UserTransaction) error {
+	promoID := strings.TrimSpace(*current.PromocodeID)
+	promo, err := s.promoRepo.GetByIDForUpdateTx(ctx, tx, promoID)
+	if err != nil {
+		return err
+	}
+	if err := validatePromocode(promo); err != nil {
+		return err
+	}
+	if err := s.repo.LockPromocodeClaimTx(ctx, tx, current.UserID, promoID); err != nil {
+		return err
+	}
+	used, err := s.repo.UserUsedPromocodeTx(ctx, tx, current.UserID, promoID, current.ID)
+	if err != nil {
+		return err
+	}
+	if used {
+		return httpx.BadRequest("promocode already used by this user")
+	}
+	if err := s.promoRepo.ReserveUsageTx(ctx, tx, promoID); err != nil {
+		return err
+	}
+	return s.repo.MarkPromocodeUsageAppliedTx(ctx, tx, current.ID)
+}
+
+func (s *Service) releasePromocodeReservationTx(ctx context.Context, tx *sql.Tx, current models.UserTransaction) error {
+	if current.PromocodeID == nil || strings.TrimSpace(*current.PromocodeID) == "" || !current.PromocodeUsageApplied {
+		return nil
+	}
+	if err := s.promoRepo.ReleaseUsageTx(ctx, tx, *current.PromocodeID); err != nil {
+		return fmt.Errorf("release promocode usage: %w", err)
+	}
+	if err := s.repo.MarkPromocodeUsageReleasedTx(ctx, tx, current.ID); err != nil {
+		return fmt.Errorf("mark promocode usage released: %w", err)
+	}
+	return nil
+}
+
+func validatePromocode(promo models.Promocode) error {
+	now := time.Now().UTC()
+	if promo.ValidFrom != nil && now.Before(*promo.ValidFrom) {
+		return httpx.BadRequest("promocode is not active yet")
+	}
+	if promo.ValidTo != nil && now.After(*promo.ValidTo) {
+		return httpx.BadRequest("promocode expired")
+	}
+	if promo.UsageLimit != nil && promo.UsageCount >= *promo.UsageLimit {
+		return httpx.BadRequest("promocode usage limit exceeded")
+	}
+	return nil
 }
 
 func (s *Service) sendPaymentModeration(ctx context.Context, topup models.UserTransaction) error {
@@ -405,6 +555,9 @@ func (s *Service) sendPaymentModeration(ctx context.Context, topup models.UserTr
 
 func mergeInvoiceStatus(authoritative, callback passimpay.InvoiceStatus) passimpay.InvoiceStatus {
 	merged := authoritative
+	if merged.PaymentURL == "" {
+		merged.PaymentURL = callback.PaymentURL
+	}
 	if merged.ProviderPaymentID == "" {
 		merged.ProviderPaymentID = callback.ProviderPaymentID
 	}
@@ -436,6 +589,7 @@ func mergeInvoiceStatus(authoritative, callback passimpay.InvoiceStatus) passimp
 
 func providerState(status passimpay.InvoiceStatus) ProviderState {
 	return ProviderState{
+		PaymentURL:            status.PaymentURL,
 		Status:                status.Status,
 		ProviderPaymentID:     status.ProviderPaymentID,
 		ProviderTransactionID: status.ProviderTransactionID,
@@ -448,4 +602,17 @@ func providerState(status passimpay.InvoiceStatus) ProviderState {
 	}
 }
 
-func floatPtr(v float64) *float64 { return &v }
+func normalizeMoney(value float64) (float64, error) {
+	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, httpx.BadRequest("deposit_amount must be positive")
+	}
+	rounded := roundMoney(value)
+	if math.Abs(value-rounded) > 0.0000001 {
+		return 0, httpx.BadRequest("deposit_amount must have at most two decimal places")
+	}
+	return rounded, nil
+}
+
+func roundMoney(value float64) float64 {
+	return math.Round(value*100) / 100
+}

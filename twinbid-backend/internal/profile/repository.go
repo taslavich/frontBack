@@ -61,6 +61,30 @@ func (r *Repository) ClearAntiPerekrutBlockedTx(ctx context.Context, tx *sql.Tx,
 	return nil
 }
 
+func (r *Repository) IncreaseGoalTotalTx(ctx context.Context, tx *sql.Tx, userID string, amount float64) (models.User, error) {
+	row := tx.QueryRowContext(ctx, `
+		UPDATE users
+		SET goal_total_dollars = goal_total_dollars + $2,
+			low_balance_notified = CASE
+				WHEN (goal_total_dollars + $2 - cum_done_dollars) >= balance_treshold THEN false
+				ELSE low_balance_notified
+			END,
+			updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, login, mail, name, telegram, manager_telegram,
+			goal_total_dollars, cum_done_dollars,
+			(goal_total_dollars - cum_done_dollars) AS balance,
+			timezone, email_notifications, campaign_status_notifications,
+			low_balance_notifications, campaign_balance_notifications,
+			balance_treshold, low_balance_notified
+	`, userID, amount)
+	updated, err := scanUser(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.User{}, httpx.NotFound("user not found")
+	}
+	return updated, err
+}
+
 func (r *Repository) Update(ctx context.Context, userID string, u models.User) (models.User, error) {
 	return r.update(ctx, r.db, userID, u)
 }

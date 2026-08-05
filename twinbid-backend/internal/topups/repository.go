@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
@@ -45,6 +46,26 @@ func (r *Repository) Get(ctx context.Context, userID, id string) (models.UserTra
 
 func (r *Repository) Create(ctx context.Context, t models.UserTransaction) (models.UserTransaction, error) {
 	row := r.db.QueryRowContext(ctx, `
+		INSERT INTO user_transactions (
+			user_id, transaction_id, payment_channel, payment_method, bonus_amount,
+			promocode_id, promocode_usage_applied, transaction_hash, deposit_amount,
+			total_balance_increase, status, currency, payment_url, provider_status,
+			provider_payment_id, provider_transaction_id, amount_paid, amount_credited,
+			fee_service, fee_network, credited_at, provider_payload
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		RETURNING `+returningTx,
+		t.UserID, t.TransactionID, t.PaymentChannel, t.PaymentMethod, t.BonusAmount,
+		t.PromocodeID, t.PromocodeUsageApplied, t.TransactionHash, t.DepositAmount,
+		t.TotalBalanceIncrease, t.Status, t.Currency, t.PaymentURL, t.ProviderStatus,
+		t.ProviderPaymentID, t.ProviderTransactionID, t.AmountPaid, t.AmountCredited,
+		t.FeeService, t.FeeNetwork, t.CreditedAt, nullableJSON(t.ProviderPayload),
+	)
+	return scanTx(row)
+}
+
+func (r *Repository) CreateTx(ctx context.Context, tx *sql.Tx, t models.UserTransaction) (models.UserTransaction, error) {
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO user_transactions (
 			user_id, transaction_id, payment_channel, payment_method, bonus_amount,
 			promocode_id, promocode_usage_applied, transaction_hash, deposit_amount,
@@ -115,12 +136,14 @@ func (r *Repository) UpdateInvoiceCreated(ctx context.Context, userID, id string
 	return item, err
 }
 
-func (r *Repository) MarkInvoiceCreationFailed(ctx context.Context, userID, id string, payload json.RawMessage) error {
+func (r *Repository) MarkInvoiceCreationUnknown(ctx context.Context, userID, id string, payload json.RawMessage, nextCheckAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE user_transactions
-		SET provider_status='create_error', status='rejected', provider_payload=$3, updated_at=NOW()
+		SET provider_status='create_unknown', status='pending', provider_payload=$3,
+			provider_check_attempts=0, provider_next_check_at=$4,
+			provider_last_error='invoice creation result is unknown', updated_at=NOW()
 		WHERE id=$2 AND user_id=$1 AND payment_channel='passimpay_invoice' AND credited_at IS NULL
-	`, userID, id, nullableJSON(payload))
+	`, userID, id, nullableJSON(payload), nextCheckAt)
 	return err
 }
 
@@ -131,23 +154,25 @@ func (r *Repository) UpdateProviderState(ctx context.Context, orderID string, st
 	}
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE user_transactions
-		SET provider_status=COALESCE(NULLIF($2,''), provider_status),
-			provider_payment_id=COALESCE(NULLIF($3,''), provider_payment_id),
-			provider_transaction_id=COALESCE(NULLIF($4,''), provider_transaction_id),
-			transaction_hash=COALESCE(NULLIF($5,''), transaction_hash),
-			amount_paid=COALESCE($6, amount_paid),
-			amount_credited=COALESCE($7, amount_credited),
-			fee_service=COALESCE($8, fee_service),
-			fee_network=COALESCE($9, fee_network),
-			provider_payload=COALESCE($10, provider_payload),
+		SET payment_url=COALESCE(NULLIF($2,''), payment_url),
+			provider_status=COALESCE(NULLIF($3,''), provider_status),
+			provider_payment_id=COALESCE(NULLIF($4,''), provider_payment_id),
+			provider_transaction_id=COALESCE(NULLIF($5,''), provider_transaction_id),
+			transaction_hash=COALESCE(NULLIF($6,''), transaction_hash),
+			amount_paid=COALESCE($7, amount_paid),
+			amount_credited=COALESCE($8, amount_credited),
+			fee_service=COALESCE($9, fee_service),
+			fee_network=COALESCE($10, fee_network),
+			provider_payload=COALESCE($11, provider_payload),
 			status=CASE
-				WHEN credited_at IS NULL THEN COALESCE($11, status)
+				WHEN credited_at IS NULL THEN COALESCE($12, status)
 				ELSE status
 			END,
+			provider_check_attempts=0, provider_next_check_at=NULL, provider_last_error=NULL,
 			updated_at=NOW()
 		WHERE transaction_id=$1 AND payment_channel='passimpay_invoice'
 		RETURNING `+returningTx,
-		orderID, state.Status, state.ProviderPaymentID, state.ProviderTransactionID, state.TransactionHash,
+		orderID, state.PaymentURL, state.Status, state.ProviderPaymentID, state.ProviderTransactionID, state.TransactionHash,
 		state.AmountPaid, state.AmountCredited, state.FeeService, state.FeeNetwork,
 		nullableJSON(state.Raw), statusValue,
 	)
@@ -156,6 +181,46 @@ func (r *Repository) UpdateProviderState(ctx context.Context, orderID string, st
 		return models.UserTransaction{}, httpx.NotFound("invoice topup not found")
 	}
 	return item, err
+}
+
+func (r *Repository) UpdateProviderStateTx(ctx context.Context, tx *sql.Tx, orderID string, state ProviderState, internalStatus *models.TopupStatus) (models.UserTransaction, error) {
+	statusValue := any(nil)
+	if internalStatus != nil {
+		statusValue = string(*internalStatus)
+	}
+	row := tx.QueryRowContext(ctx, `
+		UPDATE user_transactions
+		SET payment_url=COALESCE(NULLIF($2,''), payment_url),
+			provider_status=COALESCE(NULLIF($3,''), provider_status),
+			provider_payment_id=COALESCE(NULLIF($4,''), provider_payment_id),
+			provider_transaction_id=COALESCE(NULLIF($5,''), provider_transaction_id),
+			transaction_hash=COALESCE(NULLIF($6,''), transaction_hash),
+			amount_paid=COALESCE($7, amount_paid), amount_credited=COALESCE($8, amount_credited),
+			fee_service=COALESCE($9, fee_service), fee_network=COALESCE($10, fee_network),
+			provider_payload=COALESCE($11, provider_payload),
+			status=CASE WHEN credited_at IS NULL THEN COALESCE($12, status) ELSE status END,
+			provider_check_attempts=0, provider_next_check_at=NULL, provider_last_error=NULL,
+			updated_at=NOW()
+		WHERE transaction_id=$1 AND payment_channel='passimpay_invoice'
+		RETURNING `+returningTx,
+		orderID, state.PaymentURL, state.Status, state.ProviderPaymentID, state.ProviderTransactionID,
+		state.TransactionHash, state.AmountPaid, state.AmountCredited, state.FeeService, state.FeeNetwork,
+		nullableJSON(state.Raw), statusValue)
+	item, err := scanTx(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.UserTransaction{}, httpx.NotFound("invoice topup not found")
+	}
+	return item, err
+}
+
+func (r *Repository) MarkReconcileFailure(ctx context.Context, orderID, message string, nextCheckAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE user_transactions
+		SET provider_check_attempts=provider_check_attempts+1,
+			provider_next_check_at=$2, provider_last_error=$3, updated_at=NOW()
+		WHERE transaction_id=$1 AND payment_channel='passimpay_invoice' AND credited_at IS NULL
+	`, orderID, nextCheckAt, message)
+	return err
 }
 
 func (r *Repository) BeginTx(ctx context.Context) (*sql.Tx, error) {
@@ -171,6 +236,46 @@ func (r *Repository) LockByUserAndIDTx(ctx context.Context, tx *sql.Tx, userID, 
 	return item, err
 }
 
+func (r *Repository) CancelLockedTx(ctx context.Context, tx *sql.Tx, topupID string) (models.UserTransaction, error) {
+	row := tx.QueryRowContext(ctx, `
+		UPDATE user_transactions
+		SET status='cancelled', updated_at=NOW()
+		WHERE id=$1 AND status IN ('draft','pending') AND credited_at IS NULL
+		RETURNING `+returningTx, topupID)
+	item, err := scanTx(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.UserTransaction{}, httpx.Conflict("topup cannot be cancelled")
+	}
+	return item, err
+}
+
+func (r *Repository) LockPromocodeClaimTx(ctx context.Context, tx *sql.Tx, userID, promocodeID string) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, userID+":"+promocodeID)
+	return err
+}
+
+func (r *Repository) UserUsedPromocodeTx(ctx context.Context, tx *sql.Tx, userID, promocodeID, excludeTopupID string) (bool, error) {
+	var exists bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM user_transactions
+			WHERE user_id=$1 AND promocode_id=$2
+			  AND (status IN ('draft','pending','approved') OR promocode_usage_applied=true)
+			  AND ($3='' OR id::text<>$3)
+		)
+	`, userID, promocodeID, excludeTopupID).Scan(&exists)
+	return exists, err
+}
+
+func (r *Repository) MarkPromocodeUsageReleasedTx(ctx context.Context, tx *sql.Tx, topupID string) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE user_transactions
+		SET promocode_usage_applied=false, updated_at=NOW()
+		WHERE id=$1 AND promocode_usage_applied=true
+	`, topupID)
+	return err
+}
+
 func (r *Repository) LockByOrderIDTx(ctx context.Context, tx *sql.Tx, orderID string) (models.UserTransaction, error) {
 	row := tx.QueryRowContext(ctx, selectTx+` WHERE transaction_id=$1 AND payment_channel='passimpay_invoice' FOR UPDATE`, orderID)
 	item, err := scanTx(row)
@@ -184,20 +289,22 @@ func (r *Repository) MarkCreditedTx(ctx context.Context, tx *sql.Tx, topupID str
 	row := tx.QueryRowContext(ctx, `
 		UPDATE user_transactions
 		SET status='approved',
-			provider_status=COALESCE(NULLIF($2,''), provider_status),
-			provider_payment_id=COALESCE(NULLIF($3,''), provider_payment_id),
-			provider_transaction_id=COALESCE(NULLIF($4,''), provider_transaction_id),
-			transaction_hash=COALESCE(NULLIF($5,''), transaction_hash),
-			amount_paid=COALESCE($6, amount_paid),
-			amount_credited=COALESCE($7, amount_credited),
-			fee_service=COALESCE($8, fee_service),
-			fee_network=COALESCE($9, fee_network),
-			provider_payload=COALESCE($10, provider_payload),
+			payment_url=COALESCE(NULLIF($2,''), payment_url),
+			provider_status=COALESCE(NULLIF($3,''), provider_status),
+			provider_payment_id=COALESCE(NULLIF($4,''), provider_payment_id),
+			provider_transaction_id=COALESCE(NULLIF($5,''), provider_transaction_id),
+			transaction_hash=COALESCE(NULLIF($6,''), transaction_hash),
+			amount_paid=COALESCE($7, amount_paid),
+			amount_credited=COALESCE($8, amount_credited),
+			fee_service=COALESCE($9, fee_service),
+			fee_network=COALESCE($10, fee_network),
+			provider_payload=COALESCE($11, provider_payload),
 			credited_at=COALESCE(credited_at, NOW()),
+			provider_check_attempts=0, provider_next_check_at=NULL, provider_last_error=NULL,
 			updated_at=NOW()
 		WHERE id=$1 AND credited_at IS NULL
 		RETURNING `+returningTx,
-		topupID, state.Status, state.ProviderPaymentID, state.ProviderTransactionID, state.TransactionHash,
+		topupID, state.PaymentURL, state.Status, state.ProviderPaymentID, state.ProviderTransactionID, state.TransactionHash,
 		state.AmountPaid, state.AmountCredited, state.FeeService, state.FeeNetwork,
 		nullableJSON(state.Raw),
 	)
@@ -225,8 +332,9 @@ func (r *Repository) ListPendingInvoices(ctx context.Context, limit int) ([]mode
 		WHERE payment_channel='passimpay_invoice'
 		  AND credited_at IS NULL
 		  AND status IN ('draft','pending','cancelled')
-		  AND payment_url IS NOT NULL
-		ORDER BY updated_at ASC
+		  AND COALESCE(provider_status,'') NOT IN ('paid','error')
+		  AND (provider_next_check_at IS NULL OR provider_next_check_at <= NOW())
+		ORDER BY COALESCE(provider_next_check_at, updated_at) ASC
 		LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -258,7 +366,8 @@ func (r *Repository) UserUsedPromocode(ctx context.Context, userID, promocodeID 
 	err := r.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM user_transactions
-			WHERE user_id=$1 AND promocode_id=$2 AND status IN ('draft','pending','approved')
+			WHERE user_id=$1 AND promocode_id=$2
+			  AND (status IN ('draft','pending','approved') OR promocode_usage_applied=true)
 		)
 	`, userID, promocodeID).Scan(&exists)
 	return exists, err
@@ -268,7 +377,7 @@ const returningTx = `id, user_id, transaction_time, transaction_id, payment_chan
 	bonus_amount, promocode_id, promocode_usage_applied, transaction_hash, deposit_amount,
 	total_balance_increase, status, currency, payment_url, provider_status,
 	provider_payment_id, provider_transaction_id, amount_paid, amount_credited,
-	fee_service, fee_network, credited_at, provider_payload, created_at, updated_at`
+	fee_service, fee_network, credited_at, provider_payload, provider_check_attempts, provider_next_check_at, provider_last_error, created_at, updated_at`
 
 const selectTx = `SELECT ` + returningTx + ` FROM user_transactions`
 
@@ -278,7 +387,8 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 	var t models.UserTransaction
 	var promo, hash, paymentURL, providerStatus, providerPaymentID, providerTransactionID sql.NullString
 	var amountPaid, amountCredited, feeService, feeNetwork sql.NullFloat64
-	var creditedAt sql.NullTime
+	var creditedAt, providerNextCheckAt sql.NullTime
+	var providerLastError sql.NullString
 	var providerPayload []byte
 	var status string
 	err := s.Scan(
@@ -286,7 +396,7 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 		&t.BonusAmount, &promo, &t.PromocodeUsageApplied, &hash, &t.DepositAmount,
 		&t.TotalBalanceIncrease, &status, &t.Currency, &paymentURL, &providerStatus,
 		&providerPaymentID, &providerTransactionID, &amountPaid, &amountCredited,
-		&feeService, &feeNetwork, &creditedAt, &providerPayload, &t.CreatedAt, &t.UpdatedAt,
+		&feeService, &feeNetwork, &creditedAt, &providerPayload, &t.ProviderCheckAttempts, &providerNextCheckAt, &providerLastError, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return models.UserTransaction{}, err
@@ -327,6 +437,12 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 	if len(providerPayload) > 0 {
 		t.ProviderPayload = append(json.RawMessage(nil), providerPayload...)
 	}
+	if providerNextCheckAt.Valid {
+		t.ProviderNextCheckAt = &providerNextCheckAt.Time
+	}
+	if providerLastError.Valid {
+		t.ProviderLastError = &providerLastError.String
+	}
 	if strings.TrimSpace(t.PaymentChannel) == "" {
 		t.PaymentChannel = PaymentChannelStaticWallet
 	}
@@ -344,6 +460,7 @@ func nullableJSON(raw json.RawMessage) any {
 }
 
 type ProviderState struct {
+	PaymentURL            string
 	Status                string
 	ProviderPaymentID     string
 	ProviderTransactionID string
