@@ -22,7 +22,7 @@ func TestSignatureIsStableForCanonicalJSON(t *testing.T) {
 	}
 }
 
-func TestCreateInvoiceSignsRequestAndVerifiesResponse(t *testing.T) {
+func TestCreateInvoiceSignsRequestAndAcceptsUnsignedResponse(t *testing.T) {
 	const (
 		platformID = int64(123)
 		apiKey     = "secret"
@@ -53,7 +53,6 @@ func TestCreateInvoiceSignsRequestAndVerifiesResponse(t *testing.T) {
 			"status": "wait",
 		})
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("x-signature", signature(platformID, responseBody, apiKey))
 		_, _ = w.Write(responseBody)
 	}))
 	defer server.Close()
@@ -70,6 +69,52 @@ func TestCreateInvoiceSignsRequestAndVerifiesResponse(t *testing.T) {
 	}
 	if result.PaymentURL != "https://pay.example/invoice-1" || result.ProviderStatus != "waiting" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestCheckInvoiceUsesV2PathAndAcceptsUnsignedResponse(t *testing.T) {
+	const (
+		platformID = int64(123)
+		apiKey     = "secret"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/orderstatus" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Header.Get("x-signature"), signature(platformID, canonical, apiKey); got != want {
+			t.Fatalf("request signature=%q, want %q", got, want)
+		}
+		if payload["orderId"] != "order-1" {
+			t.Fatalf("unexpected payload: %#v", payload)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":1,"status":"paid","paymentId":"payment-1"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL:    server.URL,
+		PlatformID: platformID,
+		APIKey:     apiKey,
+		Timeout:    time.Second,
+	})
+	status, err := client.CheckInvoice(context.Background(), "order-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "paid" || status.ProviderPaymentID != "payment-1" {
+		t.Fatalf("unexpected status: %#v", status)
 	}
 }
 

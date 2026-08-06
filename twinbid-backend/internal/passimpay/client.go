@@ -70,7 +70,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		baseURL:     strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		createPath:  normalizePath(cfg.CreateInvoicePath, "/v2/createorder"),
-		statusPath:  normalizePath(cfg.CheckInvoicePath, "/v3/orderstatus"),
+		statusPath:  normalizePath(cfg.CheckInvoicePath, "/v2/orderstatus"),
 		platformID:  cfg.PlatformID,
 		apiKey:      strings.TrimSpace(cfg.APIKey),
 		invoiceType: cfg.InvoiceType,
@@ -243,25 +243,6 @@ func (c *Client) doSignedJSON(ctx context.Context, path string, payload map[stri
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("PassimPay returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-	responseSignature := resp.Header.Get("x-signature")
-
-	if strings.TrimSpace(responseSignature) == "" {
-		return nil, fmt.Errorf(
-			"verify PassimPay response signature: missing x-signature; "+
-				"status=%d content_type=%q body=%s",
-			resp.StatusCode,
-			resp.Header.Get("Content-Type"),
-			strings.TrimSpace(string(responseBody)),
-		)
-	}
-
-	if err := c.VerifyPayload(responseBody, responseSignature); err != nil {
-		return nil, fmt.Errorf(
-			"verify PassimPay response signature: %w; body=%s",
-			err,
-			strings.TrimSpace(string(responseBody)),
-		)
 	}
 	return responseBody, nil
 }

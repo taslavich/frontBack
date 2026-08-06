@@ -88,7 +88,7 @@ type PassimPayConfig struct {
 	PlatformID            int64         `env:"PASSIMPAY_PLATFORM_ID" env-default:"0"`
 	APIKey                string        `env:"PASSIMPAY_API_KEY" env-default:""`
 	CreateInvoicePath     string        `env:"PASSIMPAY_CREATE_INVOICE_PATH" env-default:"/v2/createorder"`
-	CheckInvoicePath      string        `env:"PASSIMPAY_CHECK_INVOICE_PATH" env-default:"/v3/orderstatus"`
+	CheckInvoicePath      string        `env:"PASSIMPAY_CHECK_INVOICE_PATH" env-default:"/v2/orderstatus"`
 	InvoiceType           int           `env:"PASSIMPAY_INVOICE_TYPE" env-default:"1"`
 	CurrencyIDs           string        `env:"PASSIMPAY_CURRENCY_IDS" env-default:""`
 	Timeout               time.Duration `env:"PASSIMPAY_TIMEOUT" env-default:"10s"`
