@@ -41,3 +41,20 @@ func TestRoundMoneyRoundsPromoCreditToCents(t *testing.T) {
 		t.Fatalf("roundMoney promo result=%v, want %v", got, want)
 	}
 }
+
+func TestPassimPayInvoiceAmountAddsOnePercent(t *testing.T) {
+	tests := []struct {
+		deposit float64
+		want    float64
+	}{
+		{deposit: 100, want: 101},
+		{deposit: 10, want: 10.10},
+		{deposit: 10.25, want: 10.35},
+	}
+
+	for _, tt := range tests {
+		if got := passimPayInvoiceAmount(tt.deposit); got != tt.want {
+			t.Fatalf("passimPayInvoiceAmount(%v)=%v, want %v", tt.deposit, got, tt.want)
+		}
+	}
+}

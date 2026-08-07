@@ -19,6 +19,8 @@ import (
 	"twinbid-backend/internal/promocodes"
 )
 
+const passimPayFeePercent = 1.0
+
 type Service struct {
 	repo       *Repository
 	promoSvc   *promocodes.Service
@@ -151,7 +153,8 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		return created, nil
 	}
 
-	invoice, err := s.passimPay.CreateInvoice(ctx, created.TransactionID, created.DepositAmount)
+	invoiceAmount := passimPayInvoiceAmount(created.DepositAmount)
+	invoice, err := s.passimPay.CreateInvoice(ctx, created.TransactionID, invoiceAmount)
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{"error": err.Error()})
 		nextCheckAt := time.Now().UTC().Add(time.Minute)
@@ -615,4 +618,8 @@ func normalizeMoney(value float64) (float64, error) {
 
 func roundMoney(value float64) float64 {
 	return math.Round(value*100) / 100
+}
+
+func passimPayInvoiceAmount(depositAmount float64) float64 {
+	return roundMoney(depositAmount * (1 + passimPayFeePercent/100))
 }
