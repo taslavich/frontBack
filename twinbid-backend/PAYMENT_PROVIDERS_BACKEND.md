@@ -82,6 +82,12 @@ See `cryptomus.env.example`. The required credentials are:
 - `CRYPTOMUS_PAYMENT_API_KEY`
 - `CRYPTOMUS_WEBHOOK_URL`
 
+TwinBid adds a 2.5% service surcharge to the amount sent when creating a Cryptomus
+invoice. For example, a $100 balance top-up creates a $102.50 Cryptomus invoice,
+while the credited balance remains $100 before any promo bonus. PassimPay keeps its
+existing 1% surcharge.
+
 The default Cryptomus invoice uses USD and `CRYPTOMUS_SUBTRACT_PERCENT=100`, so the
-client bears the Cryptomus payment commission. Change it to `0` if the merchant
+client bears the Cryptomus payment commission. This provider commission setting is
+separate from TwinBid's 2.5% invoice surcharge. Change it to `0` if the merchant
 should bear the payment commission instead.

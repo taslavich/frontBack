@@ -66,7 +66,7 @@ func TestCreateInvoiceSignsRequest(t *testing.T) {
 	})
 	result, err := client.CreateInvoice(context.Background(), payments.CreateInvoiceRequest{
 		OrderID:  "order-1",
-		Amount:   10.25,
+		Amount:   10,
 		Currency: "USD",
 		Lifetime: time.Hour,
 	})
@@ -75,6 +75,23 @@ func TestCreateInvoiceSignsRequest(t *testing.T) {
 	}
 	if result.PaymentURL != "https://pay.example/invoice-1" || result.ProviderPaymentID != "payment-uuid" || result.ProviderStatus != "waiting" {
 		t.Fatalf("unexpected create result: %#v", result)
+	}
+}
+
+func TestInvoiceAmountUsesTwoAndHalfPercentFee(t *testing.T) {
+	cases := []struct {
+		deposit float64
+		want    float64
+	}{
+		{deposit: 100, want: 102.50},
+		{deposit: 10, want: 10.25},
+		{deposit: 10.25, want: 10.51},
+	}
+
+	for _, tt := range cases {
+		if got := invoiceAmount(tt.deposit); got != tt.want {
+			t.Fatalf("invoiceAmount(%v)=%v, want %v", tt.deposit, got, tt.want)
+		}
 	}
 }
 

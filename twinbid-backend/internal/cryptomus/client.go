@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -119,7 +120,7 @@ func (c *Client) CreateInvoice(ctx context.Context, req payments.CreateInvoiceRe
 		Subtract    int    `json:"subtract"`
 		Lifetime    int    `json:"lifetime"`
 	}{
-		Amount:      fmt.Sprintf("%.2f", req.Amount),
+		Amount:      fmt.Sprintf("%.2f", invoiceAmount(req.Amount)),
 		Currency:    currency,
 		OrderID:     req.OrderID,
 		URLCallback: c.webhookURL,
@@ -227,6 +228,10 @@ func resultToInvoiceStatus(result paymentResult, raw []byte) payments.InvoiceSta
 		FeeService:            parseFloatPtr(result.Commission),
 		Raw:                   append(json.RawMessage(nil), raw...),
 	}
+}
+
+func invoiceAmount(depositAmount float64) float64 {
+	return math.Round(depositAmount*1.025*100) / 100
 }
 
 func normalizePaymentStatus(status string, isFinal *bool) string {
