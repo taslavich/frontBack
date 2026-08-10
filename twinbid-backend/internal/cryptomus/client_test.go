@@ -39,6 +39,7 @@ func TestCreateInvoiceSignsRequest(t *testing.T) {
 			OrderID     string `json:"order_id"`
 			URLCallback string `json:"url_callback"`
 			Subtract    int    `json:"subtract"`
+			Lifetime    int    `json:"lifetime"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			t.Fatal(err)
@@ -46,7 +47,7 @@ func TestCreateInvoiceSignsRequest(t *testing.T) {
 		if payload.Amount != "10.25" || payload.Currency != "USD" || payload.OrderID != "order-1" {
 			t.Fatalf("unexpected invoice payload: %#v", payload)
 		}
-		if payload.URLCallback != "https://api.example/api/webhooks/cryptomus" || payload.Subtract != 100 {
+		if payload.URLCallback != "https://api.example/api/webhooks/cryptomus" || payload.Subtract != 100 || payload.Lifetime != 3600 {
 			t.Fatalf("unexpected Cryptomus options: %#v", payload)
 		}
 
@@ -67,6 +68,7 @@ func TestCreateInvoiceSignsRequest(t *testing.T) {
 		OrderID:  "order-1",
 		Amount:   10.25,
 		Currency: "USD",
+		Lifetime: time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)

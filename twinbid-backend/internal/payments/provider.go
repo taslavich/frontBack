@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 const (
@@ -18,6 +19,7 @@ type CreateInvoiceRequest struct {
 	OrderID  string
 	Amount   float64
 	Currency string
+	Lifetime time.Duration
 }
 
 type CreateInvoiceResult struct {

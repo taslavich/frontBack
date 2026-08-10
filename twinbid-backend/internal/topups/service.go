@@ -20,6 +20,8 @@ import (
 	"twinbid-backend/internal/promocodes"
 )
 
+const invoiceLifetime = time.Hour
+
 type Service struct {
 	repo       *Repository
 	promoSvc   *promocodes.Service
@@ -58,10 +60,16 @@ func NewService(
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]models.UserTransaction, error) {
+	if _, err := s.ExpirePendingInvoices(ctx); err != nil {
+		return nil, err
+	}
 	return s.repo.List(ctx, userID)
 }
 
 func (s *Service) Get(ctx context.Context, userID, id string) (models.UserTransaction, error) {
+	if _, err := s.ExpirePendingInvoices(ctx); err != nil {
+		return models.UserTransaction{}, err
+	}
 	return s.repo.Get(ctx, userID, id)
 }
 
@@ -138,6 +146,10 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		Status:                status,
 		Currency:              currency,
 	}
+	if provider != nil {
+		expiresAt := time.Now().UTC().Add(invoiceLifetime)
+		topup.InvoiceExpiresAt = &expiresAt
+	}
 
 	created, err := s.repo.CreateTx(ctx, tx, topup)
 	if err != nil {
@@ -160,6 +172,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		OrderID:  created.TransactionID,
 		Amount:   created.DepositAmount,
 		Currency: created.Currency,
+		Lifetime: invoiceLifetime,
 	})
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{"error": err.Error()})
@@ -307,6 +320,10 @@ func (s *Service) HandleProviderWebhook(ctx context.Context, providerName string
 		return fmt.Errorf("save %s webhook audit: %w", provider.Name(), err)
 	}
 	return nil
+}
+
+func (s *Service) ExpirePendingInvoices(ctx context.Context) (int64, error) {
+	return s.repo.ExpirePendingInvoices(ctx, time.Now().UTC())
 }
 
 func (s *Service) ReconcilePendingInvoices(ctx context.Context, providerName string, limit int, requestDelay, retryDelay time.Duration) error {

@@ -317,10 +317,15 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_check_attempts INTEGER NOT NULL DEFAULT 0;`,
 		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_next_check_at TIMESTAMP WITH TIME ZONE;`,
 		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS provider_last_error TEXT;`,
+		`ALTER TABLE user_transactions ADD COLUMN IF NOT EXISTS invoice_expires_at TIMESTAMP WITH TIME ZONE;`,
 		`UPDATE user_transactions
 		 SET credited_at=COALESCE(updated_at, transaction_time, NOW())
 		 WHERE status='approved' AND credited_at IS NULL;`,
 		`UPDATE user_transactions SET payment_channel='static_wallet' WHERE payment_channel IS NULL OR payment_channel='';`,
+		`UPDATE user_transactions
+		 SET invoice_expires_at=created_at + INTERVAL '60 minutes'
+		 WHERE payment_channel IN ('passimpay_invoice','cryptomus_invoice')
+		   AND invoice_expires_at IS NULL;`,
 		`UPDATE user_transactions
 		 SET promocode_usage_applied=true
 		 WHERE promocode_id IS NOT NULL
@@ -405,6 +410,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`CREATE INDEX IF NOT EXISTS idx_transactions_channel_status ON user_transactions(payment_channel, status, updated_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_passimpay_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='passimpay_invoice' AND credited_at IS NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_cryptomus_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='cryptomus_invoice' AND credited_at IS NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_invoice_expiry ON user_transactions(invoice_expires_at) WHERE payment_channel IN ('passimpay_invoice','cryptomus_invoice') AND credited_at IS NULL AND status IN ('draft','pending');`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (

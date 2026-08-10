@@ -107,18 +107,24 @@ func (c *Client) CreateInvoice(ctx context.Context, req payments.CreateInvoiceRe
 	if currency == "" {
 		currency = "USD"
 	}
+	lifetimeSeconds := int(req.Lifetime / time.Second)
+	if lifetimeSeconds <= 0 {
+		lifetimeSeconds = 3600
+	}
 	payload := struct {
 		Amount      string `json:"amount"`
 		Currency    string `json:"currency"`
 		OrderID     string `json:"order_id"`
 		URLCallback string `json:"url_callback"`
 		Subtract    int    `json:"subtract"`
+		Lifetime    int    `json:"lifetime"`
 	}{
 		Amount:      fmt.Sprintf("%.2f", req.Amount),
 		Currency:    currency,
 		OrderID:     req.OrderID,
 		URLCallback: c.webhookURL,
 		Subtract:    c.subtractPercent,
+		Lifetime:    lifetimeSeconds,
 	}
 
 	body, resultRaw, err := c.doSignedJSON(ctx, c.createPath, payload)

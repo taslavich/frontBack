@@ -52,15 +52,15 @@ func (r *Repository) Create(ctx context.Context, t models.UserTransaction) (mode
 			promocode_id, promocode_usage_applied, transaction_hash, deposit_amount,
 			total_balance_increase, status, currency, payment_url, provider_status,
 			provider_payment_id, provider_transaction_id, amount_paid, amount_credited,
-			fee_service, fee_network, credited_at, provider_payload
+			fee_service, fee_network, credited_at, provider_payload, invoice_expires_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		RETURNING `+returningTx,
 		t.UserID, t.TransactionID, t.PaymentChannel, t.PaymentMethod, t.BonusAmount,
 		t.PromocodeID, t.PromocodeUsageApplied, t.TransactionHash, t.DepositAmount,
 		t.TotalBalanceIncrease, t.Status, t.Currency, t.PaymentURL, t.ProviderStatus,
 		t.ProviderPaymentID, t.ProviderTransactionID, t.AmountPaid, t.AmountCredited,
-		t.FeeService, t.FeeNetwork, t.CreditedAt, nullableJSON(t.ProviderPayload),
+		t.FeeService, t.FeeNetwork, t.CreditedAt, nullableJSON(t.ProviderPayload), t.InvoiceExpiresAt,
 	)
 	return scanTx(row)
 }
@@ -72,22 +72,22 @@ func (r *Repository) CreateTx(ctx context.Context, tx *sql.Tx, t models.UserTran
 			promocode_id, promocode_usage_applied, transaction_hash, deposit_amount,
 			total_balance_increase, status, currency, payment_url, provider_status,
 			provider_payment_id, provider_transaction_id, amount_paid, amount_credited,
-			fee_service, fee_network, credited_at, provider_payload
+			fee_service, fee_network, credited_at, provider_payload, invoice_expires_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		RETURNING `+returningTx,
 		t.UserID, t.TransactionID, t.PaymentChannel, t.PaymentMethod, t.BonusAmount,
 		t.PromocodeID, t.PromocodeUsageApplied, t.TransactionHash, t.DepositAmount,
 		t.TotalBalanceIncrease, t.Status, t.Currency, t.PaymentURL, t.ProviderStatus,
 		t.ProviderPaymentID, t.ProviderTransactionID, t.AmountPaid, t.AmountCredited,
-		t.FeeService, t.FeeNetwork, t.CreditedAt, nullableJSON(t.ProviderPayload),
+		t.FeeService, t.FeeNetwork, t.CreditedAt, nullableJSON(t.ProviderPayload), t.InvoiceExpiresAt,
 	)
 	return scanTx(row)
 }
 
 func (r *Repository) Cancel(ctx context.Context, userID, id string) (models.UserTransaction, error) {
 	row := r.db.QueryRowContext(ctx, `
-		UPDATE user_transactions SET status='cancelled', updated_at=NOW()
+		UPDATE user_transactions SET status='cancelled', payment_url=NULL, updated_at=NOW()
 		WHERE id=$2 AND user_id=$1 AND status IN ('draft','pending') AND credited_at IS NULL
 		RETURNING `+returningTx, userID, id)
 	t, err := scanTx(row)
@@ -155,8 +155,16 @@ func (r *Repository) UpdateProviderState(ctx context.Context, orderID, channel s
 	}
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE user_transactions
-		SET payment_url=COALESCE(NULLIF($2,''), payment_url),
-			provider_status=COALESCE(NULLIF($3,''), provider_status),
+		SET payment_url=CASE
+				WHEN status='cancelled' THEN NULL
+				ELSE COALESCE(NULLIF($2,''), payment_url)
+			END,
+			provider_status=CASE
+				WHEN status='cancelled' AND provider_status='expired'
+				     AND COALESCE(NULLIF($3,''),'waiting') NOT IN ('paid','error')
+					THEN provider_status
+				ELSE COALESCE(NULLIF($3,''), provider_status)
+			END,
 			provider_payment_id=COALESCE(NULLIF($4,''), provider_payment_id),
 			provider_transaction_id=COALESCE(NULLIF($5,''), provider_transaction_id),
 			transaction_hash=COALESCE(NULLIF($6,''), transaction_hash),
@@ -191,8 +199,16 @@ func (r *Repository) UpdateProviderStateTx(ctx context.Context, tx *sql.Tx, orde
 	}
 	row := tx.QueryRowContext(ctx, `
 		UPDATE user_transactions
-		SET payment_url=COALESCE(NULLIF($2,''), payment_url),
-			provider_status=COALESCE(NULLIF($3,''), provider_status),
+		SET payment_url=CASE
+				WHEN status='cancelled' THEN NULL
+				ELSE COALESCE(NULLIF($2,''), payment_url)
+			END,
+			provider_status=CASE
+				WHEN status='cancelled' AND provider_status='expired'
+				     AND COALESCE(NULLIF($3,''),'waiting') NOT IN ('paid','error')
+					THEN provider_status
+				ELSE COALESCE(NULLIF($3,''), provider_status)
+			END,
 			provider_payment_id=COALESCE(NULLIF($4,''), provider_payment_id),
 			provider_transaction_id=COALESCE(NULLIF($5,''), provider_transaction_id),
 			transaction_hash=COALESCE(NULLIF($6,''), transaction_hash),
@@ -240,7 +256,7 @@ func (r *Repository) LockByUserAndIDTx(ctx context.Context, tx *sql.Tx, userID, 
 func (r *Repository) CancelLockedTx(ctx context.Context, tx *sql.Tx, topupID string) (models.UserTransaction, error) {
 	row := tx.QueryRowContext(ctx, `
 		UPDATE user_transactions
-		SET status='cancelled', updated_at=NOW()
+		SET status='cancelled', payment_url=NULL, updated_at=NOW()
 		WHERE id=$1 AND status IN ('draft','pending') AND credited_at IS NULL
 		RETURNING `+returningTx, topupID)
 	item, err := scanTx(row)
@@ -325,6 +341,30 @@ func (r *Repository) MarkPromocodeUsageAppliedTx(ctx context.Context, tx *sql.Tx
 	return err
 }
 
+func (r *Repository) ExpirePendingInvoices(ctx context.Context, now time.Time) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE user_transactions
+		SET status='cancelled',
+			payment_url=NULL,
+			provider_status='expired',
+			provider_next_check_at=CASE
+				WHEN provider_next_check_at IS NULL OR provider_next_check_at > $1 THEN $1
+				ELSE provider_next_check_at
+			END,
+			updated_at=NOW()
+		WHERE payment_channel IN ('passimpay_invoice','cryptomus_invoice')
+		  AND credited_at IS NULL
+		  AND status IN ('draft','pending')
+		  AND invoice_expires_at IS NOT NULL
+		  AND invoice_expires_at <= $1
+		  AND COALESCE(provider_status,'') NOT IN ('paid','error')
+	`, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (r *Repository) ListPendingInvoices(ctx context.Context, channel string, limit int) ([]models.UserTransaction, error) {
 	if limit <= 0 {
 		limit = 100
@@ -378,7 +418,7 @@ const returningTx = `id, user_id, transaction_time, transaction_id, payment_chan
 	bonus_amount, promocode_id, promocode_usage_applied, transaction_hash, deposit_amount,
 	total_balance_increase, status, currency, payment_url, provider_status,
 	provider_payment_id, provider_transaction_id, amount_paid, amount_credited,
-	fee_service, fee_network, credited_at, provider_payload, provider_check_attempts, provider_next_check_at, provider_last_error, created_at, updated_at`
+	fee_service, fee_network, credited_at, provider_payload, provider_check_attempts, provider_next_check_at, provider_last_error, invoice_expires_at, created_at, updated_at`
 
 const selectTx = `SELECT ` + returningTx + ` FROM user_transactions`
 
@@ -388,7 +428,7 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 	var t models.UserTransaction
 	var promo, hash, paymentURL, providerStatus, providerPaymentID, providerTransactionID sql.NullString
 	var amountPaid, amountCredited, feeService, feeNetwork sql.NullFloat64
-	var creditedAt, providerNextCheckAt sql.NullTime
+	var creditedAt, providerNextCheckAt, invoiceExpiresAt sql.NullTime
 	var providerLastError sql.NullString
 	var providerPayload []byte
 	var status string
@@ -397,7 +437,7 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 		&t.BonusAmount, &promo, &t.PromocodeUsageApplied, &hash, &t.DepositAmount,
 		&t.TotalBalanceIncrease, &status, &t.Currency, &paymentURL, &providerStatus,
 		&providerPaymentID, &providerTransactionID, &amountPaid, &amountCredited,
-		&feeService, &feeNetwork, &creditedAt, &providerPayload, &t.ProviderCheckAttempts, &providerNextCheckAt, &providerLastError, &t.CreatedAt, &t.UpdatedAt,
+		&feeService, &feeNetwork, &creditedAt, &providerPayload, &t.ProviderCheckAttempts, &providerNextCheckAt, &providerLastError, &invoiceExpiresAt, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return models.UserTransaction{}, err
@@ -440,6 +480,9 @@ func scanTx(s scanner) (models.UserTransaction, error) {
 	}
 	if providerNextCheckAt.Valid {
 		t.ProviderNextCheckAt = &providerNextCheckAt.Time
+	}
+	if invoiceExpiresAt.Valid {
+		t.InvoiceExpiresAt = &invoiceExpiresAt.Time
 	}
 	if providerLastError.Valid {
 		t.ProviderLastError = &providerLastError.String

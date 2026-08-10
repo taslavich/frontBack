@@ -134,6 +134,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
+	go runInvoiceExpiryTicker(ctx, topupSvc)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
@@ -272,6 +273,35 @@ func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc 
 				log.Printf("campaign waiting ticker rows iteration error: %v", err)
 			}
 			_ = rows.Close()
+		}
+	}
+}
+
+func runInvoiceExpiryTicker(ctx context.Context, svc *topups.Service) {
+	const interval = time.Minute
+
+	run := func() {
+		expired, err := svc.ExpirePendingInvoices(ctx)
+		if err != nil {
+			log.Printf("invoice expiry error: %v", err)
+			return
+		}
+		if expired > 0 {
+			log.Printf("invoice expiry completed: expired=%d", expired)
+		}
+	}
+
+	// Clean up invoices that expired while the API was stopped, then keep the
+	// local status/UI in sync with the fixed one-hour invoice lifetime.
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
 		}
 	}
 }
