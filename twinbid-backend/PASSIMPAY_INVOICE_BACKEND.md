@@ -23,9 +23,10 @@ The API key stays on the backend. The frontend never calls the PassimPay API dir
 
 ## Payment channels
 
-- Missing `payment_channel` is treated as `static_wallet` for backward compatibility.
+- Invoice creation requires explicit `"provider": "passimpay"`.
+- Missing/empty/unsupported `provider` returns `400 Bad Request` unless the request explicitly selects `payment_channel: "static_wallet"`.
 - `static_wallet` keeps transaction-hash submission and manual moderation.
-- `passimpay_invoice` creates an invoice and returns `payment_url` in the local transaction.
+- `passimpay_invoice` is derived from `provider=passimpay` and returns `payment_url` in the local transaction.
 - PassimPay invoices are denominated in `USD`; another `currency` value is rejected.
 - `deposit_amount` must be positive and contain no more than two decimal places.
 

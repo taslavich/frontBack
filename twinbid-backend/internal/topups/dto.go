@@ -1,13 +1,19 @@
 package topups
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"twinbid-backend/internal/payments"
+)
 
 const (
 	PaymentChannelStaticWallet     = "static_wallet"
-	PaymentChannelPassimPayInvoice = "passimpay_invoice"
+	PaymentChannelPassimPayInvoice = payments.ChannelPassimPayInvoice
+	PaymentChannelCryptomusInvoice = payments.ChannelCryptomusInvoice
 )
 
 type CreateTopupRequest struct {
+	Provider        string  `json:"provider,omitempty"`
 	PaymentChannel  string  `json:"payment_channel,omitempty"`
 	PaymentMethod   string  `json:"payment_method"`
 	DepositAmount   float64 `json:"deposit_amount"`

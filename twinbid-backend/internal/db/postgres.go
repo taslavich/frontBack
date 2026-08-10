@@ -346,14 +346,22 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			END IF;
 		END $$;`,
 		`DO $$
+		DECLARE
+			constraint_def TEXT;
 		BEGIN
-			IF NOT EXISTS (
-				SELECT 1 FROM information_schema.table_constraints
-				WHERE table_schema='public' AND table_name='user_transactions'
-				  AND constraint_name='check_user_transactions_payment_channel'
-			) THEN
+			SELECT pg_get_constraintdef(c.oid)
+			INTO constraint_def
+			FROM pg_constraint c
+			JOIN pg_class t ON t.oid=c.conrelid
+			JOIN pg_namespace n ON n.oid=t.relnamespace
+			WHERE n.nspname='public'
+			  AND t.relname='user_transactions'
+			  AND c.conname='check_user_transactions_payment_channel';
+
+			IF constraint_def IS NULL OR POSITION('cryptomus_invoice' IN constraint_def)=0 THEN
+				ALTER TABLE user_transactions DROP CONSTRAINT IF EXISTS check_user_transactions_payment_channel;
 				ALTER TABLE user_transactions ADD CONSTRAINT check_user_transactions_payment_channel
-				CHECK (payment_channel IN ('static_wallet','passimpay_invoice'));
+				CHECK (payment_channel IN ('static_wallet','passimpay_invoice','cryptomus_invoice'));
 			END IF;
 		END $$;`,
 		`CREATE TABLE IF NOT EXISTS payment_webhook_events (
@@ -396,6 +404,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`CREATE INDEX IF NOT EXISTS idx_transactions_user_promocode_status ON user_transactions(user_id, promocode_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_channel_status ON user_transactions(payment_channel, status, updated_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_passimpay_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='passimpay_invoice' AND credited_at IS NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_cryptomus_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='cryptomus_invoice' AND credited_at IS NULL;`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (

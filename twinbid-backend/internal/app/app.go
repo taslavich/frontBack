@@ -12,9 +12,11 @@ import (
 	"twinbid-backend/internal/campaigns"
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/creatives"
+	"twinbid-backend/internal/cryptomus"
 	"twinbid-backend/internal/db"
 	"twinbid-backend/internal/notifications"
 	"twinbid-backend/internal/passimpay"
+	"twinbid-backend/internal/payments"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 	"twinbid-backend/internal/spendsync"
@@ -104,6 +106,16 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		CurrencyIDs:       cfg.PassimPay.CurrencyIDs,
 		Timeout:           cfg.PassimPay.Timeout,
 	})
+	cryptomusClient := cryptomus.NewClient(cryptomus.Config{
+		BaseURL:           cfg.Cryptomus.BaseURL,
+		MerchantUUID:      cfg.Cryptomus.MerchantUUID,
+		PaymentAPIKey:     cfg.Cryptomus.PaymentAPIKey,
+		CreateInvoicePath: cfg.Cryptomus.CreateInvoicePath,
+		CheckInvoicePath:  cfg.Cryptomus.CheckInvoicePath,
+		WebhookURL:        cfg.Cryptomus.WebhookURL,
+		SubtractPercent:   cfg.Cryptomus.SubtractPercent,
+		Timeout:           cfg.Cryptomus.Timeout,
+	})
 
 	topupSvc := topups.NewService(
 		topups.NewRepository(pg),
@@ -113,6 +125,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		profileSvc,
 		cfg.Bot,
 		passimPayClient,
+		cryptomusClient,
 	)
 	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret, cfg.Bot.AdminUserID)
 
@@ -120,6 +133,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
+	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
 	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
@@ -263,7 +277,38 @@ func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc 
 }
 
 func runPassimPayReconcileTicker(ctx context.Context, cfg config.PassimPayConfig, svc *topups.Service) {
-	interval := cfg.ReconcileInterval
+	runPaymentReconcileTicker(
+		ctx,
+		payments.ProviderPassimPay,
+		cfg.ReconcileInterval,
+		cfg.ReconcileBatchSize,
+		cfg.ReconcileRequestDelay,
+		cfg.ReconcileRetryDelay,
+		svc,
+	)
+}
+
+func runCryptomusReconcileTicker(ctx context.Context, cfg config.CryptomusConfig, svc *topups.Service) {
+	runPaymentReconcileTicker(
+		ctx,
+		payments.ProviderCryptomus,
+		cfg.ReconcileInterval,
+		cfg.ReconcileBatchSize,
+		cfg.ReconcileRequestDelay,
+		cfg.ReconcileRetryDelay,
+		svc,
+	)
+}
+
+func runPaymentReconcileTicker(
+	ctx context.Context,
+	providerName string,
+	interval time.Duration,
+	batchSize int,
+	requestDelay time.Duration,
+	retryDelay time.Duration,
+	svc *topups.Service,
+) {
 	if interval <= 0 {
 		return
 	}
@@ -276,8 +321,8 @@ func runPassimPayReconcileTicker(ctx context.Context, cfg config.PassimPayConfig
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := svc.ReconcilePendingInvoices(ctx, cfg.ReconcileBatchSize, cfg.ReconcileRequestDelay, cfg.ReconcileRetryDelay); err != nil {
-				log.Printf("PassimPay reconciliation error: %v", err)
+			if err := svc.ReconcilePendingInvoices(ctx, providerName, batchSize, requestDelay, retryDelay); err != nil {
+				log.Printf("%s reconciliation error: %v", providerName, err)
 			}
 		}
 	}
@@ -361,6 +406,7 @@ func buildRouter(
 	r.Head("/api/media/{imageID}", creativeHandler.Media)
 	r.Post("/api/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
 	r.Post("/api/webhooks/passimpay", topupHandler.PassimPayWebhook)
+	r.Post("/api/webhooks/cryptomus", topupHandler.CryptomusWebhook)
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)

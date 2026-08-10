@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"twinbid-backend/internal/payments"
 )
 
 func TestSignatureIsStableForCanonicalJSON(t *testing.T) {
@@ -43,7 +45,7 @@ func TestCreateInvoiceSignsRequestAndAcceptsUnsignedResponse(t *testing.T) {
 		if got, want := r.Header.Get("x-signature"), signature(platformID, canonical, apiKey); got != want {
 			t.Fatalf("request signature=%q, want %q", got, want)
 		}
-		if payload["orderId"] != "order-1" || payload["amount"] != "10.00" || payload["symbol"] != "USD" {
+		if payload["orderId"] != "order-1" || payload["amount"] != "10.10" || payload["symbol"] != "USD" {
 			t.Fatalf("unexpected payload: %#v", payload)
 		}
 
@@ -63,7 +65,7 @@ func TestCreateInvoiceSignsRequestAndAcceptsUnsignedResponse(t *testing.T) {
 		APIKey:     apiKey,
 		Timeout:    time.Second,
 	})
-	result, err := client.CreateInvoice(context.Background(), "order-1", 10)
+	result, err := client.CreateInvoice(context.Background(), payments.CreateInvoiceRequest{OrderID: "order-1", Amount: 10, Currency: "USD"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +163,23 @@ func TestNormalizeStatus(t *testing.T) {
 	for input, want := range cases {
 		if got := normalizeStatus(input); got != want {
 			t.Fatalf("normalizeStatus(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestInvoiceAmountPreservesHistoricalOnePercentFee(t *testing.T) {
+	cases := []struct {
+		deposit float64
+		want    float64
+	}{
+		{deposit: 100, want: 101},
+		{deposit: 10, want: 10.10},
+		{deposit: 10.25, want: 10.35},
+	}
+
+	for _, tt := range cases {
+		if got := invoiceAmount(tt.deposit); got != tt.want {
+			t.Fatalf("invoiceAmount(%v)=%v, want %v", tt.deposit, got, tt.want)
 		}
 	}
 }

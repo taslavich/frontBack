@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"twinbid-backend/internal/auth"
 	"twinbid-backend/internal/httpx"
+	"twinbid-backend/internal/payments"
 )
 
 const maxWebhookBody = 1 << 20
@@ -131,6 +132,14 @@ func (h *Handler) ApproveAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PassimPayWebhook(w http.ResponseWriter, r *http.Request) {
+	h.handleProviderWebhook(w, r, payments.ProviderPassimPay)
+}
+
+func (h *Handler) CryptomusWebhook(w http.ResponseWriter, r *http.Request) {
+	h.handleProviderWebhook(w, r, payments.ProviderCryptomus)
+}
+
+func (h *Handler) handleProviderWebhook(w http.ResponseWriter, r *http.Request, provider string) {
 	defer r.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody+1))
 	if err != nil {
@@ -141,7 +150,7 @@ func (h *Handler) PassimPayWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, httpx.BadRequest("webhook body is too large"))
 		return
 	}
-	if err := h.svc.HandlePassimPayWebhook(r.Context(), body, r.Header.Get("x-signature")); err != nil {
+	if err := h.svc.HandleProviderWebhook(r.Context(), provider, body, r.Header); err != nil {
 		httpx.Error(w, err)
 		return
 	}

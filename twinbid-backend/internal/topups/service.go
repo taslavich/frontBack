@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,12 +15,10 @@ import (
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
-	"twinbid-backend/internal/passimpay"
+	"twinbid-backend/internal/payments"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 )
-
-const passimPayFeePercent = 1.0
 
 type Service struct {
 	repo       *Repository
@@ -28,7 +27,7 @@ type Service struct {
 	profile    *profile.Repository
 	botCfg     config.BotConfig
 	profileSvc *profile.Service
-	passimPay  *passimpay.Client
+	providers  map[string]payments.InvoiceProvider
 }
 
 func NewService(
@@ -38,8 +37,15 @@ func NewService(
 	profileRepo *profile.Repository,
 	profileSvc *profile.Service,
 	botCfg config.BotConfig,
-	passimPay *passimpay.Client,
+	providers ...payments.InvoiceProvider,
 ) *Service {
+	providerMap := make(map[string]payments.InvoiceProvider, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		providerMap[strings.ToLower(strings.TrimSpace(provider.Name()))] = provider
+	}
 	return &Service{
 		repo:       repo,
 		promoSvc:   promoSvc,
@@ -47,7 +53,7 @@ func NewService(
 		profile:    profileRepo,
 		profileSvc: profileSvc,
 		botCfg:     botCfg,
-		passimPay:  passimPay,
+		providers:  providerMap,
 	}
 }
 
@@ -60,40 +66,37 @@ func (s *Service) Get(ctx context.Context, userID, id string) (models.UserTransa
 }
 
 func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequest) (models.UserTransaction, error) {
-	channel := strings.TrimSpace(req.PaymentChannel)
-	if channel == "" {
-		channel = PaymentChannelStaticWallet
-	}
-	if channel != PaymentChannelStaticWallet && channel != PaymentChannelPassimPayInvoice {
-		return models.UserTransaction{}, httpx.BadRequest("invalid payment_channel")
+	channel, provider, err := s.resolvePaymentSelection(req)
+	if err != nil {
+		return models.UserTransaction{}, err
 	}
 
 	depositAmount, err := normalizeMoney(req.DepositAmount)
 	if err != nil {
 		return models.UserTransaction{}, err
 	}
-	if channel == PaymentChannelPassimPayInvoice && (s.passimPay == nil || !s.passimPay.Enabled()) {
-		return models.UserTransaction{}, httpx.ServiceUnavailable("PassimPay is not configured")
+	if provider != nil && !provider.Enabled() {
+		return models.UserTransaction{}, httpx.ServiceUnavailable(provider.Name() + " is not configured")
 	}
 
 	paymentMethod := strings.TrimSpace(req.PaymentMethod)
 	if paymentMethod == "" {
-		if channel == PaymentChannelStaticWallet {
+		if provider == nil {
 			return models.UserTransaction{}, httpx.BadRequest("payment_method is required")
 		}
-		paymentMethod = "passimpay"
+		paymentMethod = provider.Name()
 	}
 	currency := strings.ToUpper(strings.TrimSpace(req.Currency))
 	if currency == "" {
 		currency = "USD"
 	}
-	if channel == PaymentChannelPassimPayInvoice && currency != "USD" {
-		return models.UserTransaction{}, httpx.BadRequest("PassimPay invoice currency must be USD")
+	if provider != nil && currency != "USD" {
+		return models.UserTransaction{}, httpx.BadRequest("invoice currency must be USD")
 	}
 
 	status := models.TopupPending
 	var transactionHash *string
-	if channel == PaymentChannelPassimPayInvoice {
+	if provider != nil {
 		status = models.TopupDraft
 	} else {
 		switch strings.TrimSpace(req.Status) {
@@ -144,7 +147,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		return models.UserTransaction{}, err
 	}
 
-	if channel == PaymentChannelStaticWallet {
+	if provider == nil {
 		if created.Status == models.TopupPending && created.TransactionHash != nil && strings.TrimSpace(*created.TransactionHash) != "" {
 			if err := s.sendPaymentModeration(ctx, created); err != nil {
 				return models.UserTransaction{}, err
@@ -153,16 +156,19 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		return created, nil
 	}
 
-	invoiceAmount := passimPayInvoiceAmount(created.DepositAmount)
-	invoice, err := s.passimPay.CreateInvoice(ctx, created.TransactionID, invoiceAmount)
+	invoice, err := provider.CreateInvoice(ctx, payments.CreateInvoiceRequest{
+		OrderID:  created.TransactionID,
+		Amount:   created.DepositAmount,
+		Currency: created.Currency,
+	})
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{"error": err.Error()})
 		nextCheckAt := time.Now().UTC().Add(time.Minute)
-		if markErr := s.repo.MarkInvoiceCreationUnknown(ctx, userID, created.ID, payload, nextCheckAt); markErr != nil {
-			return models.UserTransaction{}, fmt.Errorf("create PassimPay invoice: %v; mark unknown: %w", err, markErr)
+		if markErr := s.repo.MarkInvoiceCreationUnknown(ctx, userID, created.ID, channel, payload, nextCheckAt); markErr != nil {
+			return models.UserTransaction{}, fmt.Errorf("create %s invoice: %v; mark unknown: %w", provider.Name(), err, markErr)
 		}
-		// A timeout does not prove that PassimPay did not create the invoice. Keep
-		// the local order pending and let reconciliation resolve it by orderId.
+		// A timeout does not prove the provider did not create the invoice. Both
+		// supported providers can resolve the invoice later by our order ID.
 		return s.repo.Get(ctx, userID, created.ID)
 	}
 
@@ -170,6 +176,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		ctx,
 		userID,
 		created.ID,
+		channel,
 		invoice.PaymentURL,
 		invoice.ProviderPaymentID,
 		invoice.ProviderTransactionID,
@@ -177,7 +184,7 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		invoice.Raw,
 	)
 	if err != nil {
-		return models.UserTransaction{}, fmt.Errorf("save PassimPay invoice: %w", err)
+		return models.UserTransaction{}, fmt.Errorf("save %s invoice: %w", provider.Name(), err)
 	}
 	return updated, nil
 }
@@ -200,8 +207,8 @@ func (s *Service) Cancel(ctx context.Context, userID, id string) (models.UserTra
 	if err != nil {
 		return models.UserTransaction{}, err
 	}
-	// A PassimPay link may still be paid after local cancellation, so its promo
-	// reservation is retained until PassimPay reports a terminal error.
+	// An external invoice may still be paid after local cancellation, so its promo
+	// reservation is retained until the provider reports a terminal error.
 	if current.PaymentChannel == PaymentChannelStaticWallet {
 		if err := s.releasePromocodeReservationTx(ctx, tx, current); err != nil {
 			return models.UserTransaction{}, err
@@ -219,7 +226,7 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 		return models.UserTransaction{}, err
 	}
 	if current.PaymentChannel != PaymentChannelStaticWallet {
-		return models.UserTransaction{}, httpx.BadRequest("PassimPay invoice cannot be changed from frontend")
+		return models.UserTransaction{}, httpx.BadRequest("invoice topup cannot be changed from frontend")
 	}
 	if !req.TransactionHashSet || req.TransactionHash == nil || strings.TrimSpace(*req.TransactionHash) == "" {
 		return models.UserTransaction{}, httpx.BadRequest("transaction_hash is required")
@@ -268,42 +275,46 @@ func (s *Service) Approve(ctx context.Context, userID, id string) (models.UserTr
 	return credited, nil
 }
 
-func (s *Service) HandlePassimPayWebhook(ctx context.Context, raw []byte, receivedSignature string) error {
-	if s.passimPay == nil || !s.passimPay.Enabled() {
-		return httpx.ServiceUnavailable("PassimPay is not configured")
-	}
-	if err := s.passimPay.VerifyPayload(raw, receivedSignature); err != nil {
-		return httpx.BadRequest("invalid PassimPay signature")
-	}
-
-	webhookStatus, orderID, err := s.passimPay.ParseWebhook(raw)
+func (s *Service) HandleProviderWebhook(ctx context.Context, providerName string, raw []byte, headers http.Header) error {
+	provider, err := s.provider(providerName)
 	if err != nil {
-		return httpx.BadRequest(err.Error())
-	}
-
-	// The deposit webhook can arrive for a partial invoice payment. Always ask
-	// the invoice-status endpoint for the authoritative paid/waiting/error state
-	// before changing the user's balance.
-	checkedStatus, err := s.passimPay.CheckInvoice(ctx, orderID)
-	if err != nil {
-		state := providerState(webhookStatus)
-		message := "cannot verify PassimPay invoice status: " + err.Error()
-		_ = s.repo.InsertWebhookEvent(ctx, orderID, receivedSignature, state, message)
-		return httpx.ServiceUnavailable("cannot verify PassimPay invoice status")
-	}
-	state := providerState(mergeInvoiceStatus(checkedStatus, webhookStatus))
-	if err := s.applyProviderState(ctx, orderID, state); err != nil {
-		_ = s.repo.InsertWebhookEvent(ctx, orderID, receivedSignature, state, err.Error())
 		return err
 	}
-	if err := s.repo.InsertWebhookEvent(ctx, orderID, receivedSignature, state, ""); err != nil {
-		return fmt.Errorf("save PassimPay webhook audit: %w", err)
+	if !provider.Enabled() {
+		return httpx.ServiceUnavailable(provider.Name() + " is not configured")
+	}
+
+	event, err := provider.ParseAndVerifyWebhook(raw, headers)
+	if err != nil {
+		return httpx.BadRequest("invalid " + provider.Name() + " webhook: " + err.Error())
+	}
+
+	// Webhooks are authenticated notifications, not the authoritative source for
+	// balance credit. Re-read the invoice from the provider before changing money.
+	checkedStatus, err := provider.CheckInvoice(ctx, event.OrderID)
+	if err != nil {
+		state := event.Status
+		message := "cannot verify " + provider.Name() + " invoice status: " + err.Error()
+		_ = s.repo.InsertWebhookEvent(ctx, provider.Name(), event.OrderID, event.Signature, state, message)
+		return httpx.ServiceUnavailable("cannot verify " + provider.Name() + " invoice status")
+	}
+	state := mergeInvoiceStatus(checkedStatus, event.Status)
+	if err := s.applyProviderState(ctx, provider.PaymentChannel(), event.OrderID, state); err != nil {
+		_ = s.repo.InsertWebhookEvent(ctx, provider.Name(), event.OrderID, event.Signature, state, err.Error())
+		return err
+	}
+	if err := s.repo.InsertWebhookEvent(ctx, provider.Name(), event.OrderID, event.Signature, state, ""); err != nil {
+		return fmt.Errorf("save %s webhook audit: %w", provider.Name(), err)
 	}
 	return nil
 }
 
-func (s *Service) ReconcilePendingInvoices(ctx context.Context, limit int, requestDelay, retryDelay time.Duration) error {
-	if s.passimPay == nil || !s.passimPay.Enabled() {
+func (s *Service) ReconcilePendingInvoices(ctx context.Context, providerName string, limit int, requestDelay, retryDelay time.Duration) error {
+	provider, err := s.provider(providerName)
+	if err != nil {
+		return err
+	}
+	if !provider.Enabled() {
 		return nil
 	}
 	if limit <= 0 {
@@ -319,7 +330,7 @@ func (s *Service) ReconcilePendingInvoices(ctx context.Context, limit int, reque
 		retryDelay = 5 * time.Minute
 	}
 
-	items, err := s.repo.ListPendingInvoices(ctx, limit)
+	items, err := s.repo.ListPendingInvoices(ctx, provider.PaymentChannel(), limit)
 	if err != nil {
 		return err
 	}
@@ -335,20 +346,20 @@ func (s *Service) ReconcilePendingInvoices(ctx context.Context, limit int, reque
 			}
 		}
 
-		status, checkErr := s.passimPay.CheckInvoice(ctx, item.TransactionID)
+		status, checkErr := provider.CheckInvoice(ctx, item.TransactionID)
 		if checkErr != nil {
-			log.Printf("PassimPay status check failed: order_id=%s error=%v", item.TransactionID, checkErr)
+			log.Printf("%s status check failed: order_id=%s error=%v", provider.Name(), item.TransactionID, checkErr)
 			nextCheckAt := time.Now().UTC().Add(retryDelay)
-			if markErr := s.repo.MarkReconcileFailure(ctx, item.TransactionID, checkErr.Error(), nextCheckAt); markErr != nil {
-				log.Printf("PassimPay reconciliation failure state error: order_id=%s error=%v", item.TransactionID, markErr)
+			if markErr := s.repo.MarkReconcileFailure(ctx, item.TransactionID, provider.PaymentChannel(), checkErr.Error(), nextCheckAt); markErr != nil {
+				log.Printf("%s reconciliation failure state error: order_id=%s error=%v", provider.Name(), item.TransactionID, markErr)
 			}
 			if firstErr == nil {
 				firstErr = checkErr
 			}
 			continue
 		}
-		if applyErr := s.applyProviderState(ctx, item.TransactionID, providerState(status)); applyErr != nil {
-			log.Printf("PassimPay reconciliation apply failed: order_id=%s error=%v", item.TransactionID, applyErr)
+		if applyErr := s.applyProviderState(ctx, provider.PaymentChannel(), item.TransactionID, status); applyErr != nil {
+			log.Printf("%s reconciliation apply failed: order_id=%s error=%v", provider.Name(), item.TransactionID, applyErr)
 			if firstErr == nil {
 				firstErr = applyErr
 			}
@@ -357,27 +368,27 @@ func (s *Service) ReconcilePendingInvoices(ctx context.Context, limit int, reque
 	return firstErr
 }
 
-func (s *Service) applyProviderState(ctx context.Context, orderID string, state ProviderState) error {
+func (s *Service) applyProviderState(ctx context.Context, channel, orderID string, state ProviderState) error {
 	switch state.Status {
 	case "paid":
-		_, err := s.creditInvoice(ctx, orderID, state)
+		_, err := s.creditInvoice(ctx, channel, orderID, state)
 		return err
 	case "error":
-		return s.rejectInvoice(ctx, orderID, state)
+		return s.rejectInvoice(ctx, channel, orderID, state)
 	default:
-		_, err := s.repo.UpdateProviderState(ctx, orderID, state, nil)
+		_, err := s.repo.UpdateProviderState(ctx, orderID, channel, state, nil)
 		return err
 	}
 }
 
-func (s *Service) rejectInvoice(ctx context.Context, orderID string, state ProviderState) error {
+func (s *Service) rejectInvoice(ctx context.Context, channel, orderID string, state ProviderState) error {
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	current, err := s.repo.LockByOrderIDTx(ctx, tx, orderID)
+	current, err := s.repo.LockByOrderIDTx(ctx, tx, orderID, channel)
 	if err != nil {
 		return err
 	}
@@ -385,7 +396,7 @@ func (s *Service) rejectInvoice(ctx context.Context, orderID string, state Provi
 		return nil
 	}
 	status := models.TopupRejected
-	if _, err := s.repo.UpdateProviderStateTx(ctx, tx, orderID, state, &status); err != nil {
+	if _, err := s.repo.UpdateProviderStateTx(ctx, tx, orderID, channel, state, &status); err != nil {
 		return err
 	}
 	if err := s.releasePromocodeReservationTx(ctx, tx, current); err != nil {
@@ -394,14 +405,14 @@ func (s *Service) rejectInvoice(ctx context.Context, orderID string, state Provi
 	return tx.Commit()
 }
 
-func (s *Service) creditInvoice(ctx context.Context, orderID string, state ProviderState) (models.UserTransaction, error) {
+func (s *Service) creditInvoice(ctx context.Context, channel, orderID string, state ProviderState) (models.UserTransaction, error) {
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return models.UserTransaction{}, err
 	}
 	defer tx.Rollback()
 
-	current, err := s.repo.LockByOrderIDTx(ctx, tx, orderID)
+	current, err := s.repo.LockByOrderIDTx(ctx, tx, orderID, channel)
 	if err != nil {
 		return models.UserTransaction{}, err
 	}
@@ -556,7 +567,7 @@ func (s *Service) sendPaymentModeration(ctx context.Context, topup models.UserTr
 	return nil
 }
 
-func mergeInvoiceStatus(authoritative, callback passimpay.InvoiceStatus) passimpay.InvoiceStatus {
+func mergeInvoiceStatus(authoritative, callback payments.InvoiceStatus) payments.InvoiceStatus {
 	merged := authoritative
 	if merged.PaymentURL == "" {
 		merged.PaymentURL = callback.PaymentURL
@@ -582,27 +593,47 @@ func mergeInvoiceStatus(authoritative, callback passimpay.InvoiceStatus) passimp
 	if merged.FeeNetwork == nil {
 		merged.FeeNetwork = callback.FeeNetwork
 	}
-	// Keep the callback body in the transaction audit fields because it contains
-	// blockchain details that may be absent from the invoice-status response.
+	// Keep the callback body in the audit payload: it often contains blockchain
+	// details that are absent from the provider's status endpoint response.
 	if len(callback.Raw) > 0 {
 		merged.Raw = callback.Raw
 	}
 	return merged
 }
 
-func providerState(status passimpay.InvoiceStatus) ProviderState {
-	return ProviderState{
-		PaymentURL:            status.PaymentURL,
-		Status:                status.Status,
-		ProviderPaymentID:     status.ProviderPaymentID,
-		ProviderTransactionID: status.ProviderTransactionID,
-		TransactionHash:       status.TransactionHash,
-		AmountPaid:            status.AmountPaid,
-		AmountCredited:        status.AmountCredited,
-		FeeService:            status.FeeService,
-		FeeNetwork:            status.FeeNetwork,
-		Raw:                   status.Raw,
+func (s *Service) provider(name string) (payments.InvoiceProvider, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	provider := s.providers[name]
+	if provider == nil {
+		return nil, httpx.BadRequest("unsupported payment provider")
 	}
+	return provider, nil
+}
+
+func (s *Service) resolvePaymentSelection(req CreateTopupRequest) (string, payments.InvoiceProvider, error) {
+	channel := strings.TrimSpace(req.PaymentChannel)
+	providerName := strings.ToLower(strings.TrimSpace(req.Provider))
+
+	// Keep the legacy manual wallet flow, but require it to be selected
+	// explicitly. Missing both fields must never silently choose a provider.
+	if channel == PaymentChannelStaticWallet {
+		if providerName != "" {
+			return "", nil, httpx.BadRequest("provider must not be set for static_wallet")
+		}
+		return PaymentChannelStaticWallet, nil, nil
+	}
+	if providerName == "" {
+		return "", nil, httpx.BadRequest("payment provider is required")
+	}
+	provider, err := s.provider(providerName)
+	if err != nil {
+		return "", nil, err
+	}
+	expectedChannel := provider.PaymentChannel()
+	if channel != "" && channel != expectedChannel {
+		return "", nil, httpx.BadRequest("payment_channel does not match provider")
+	}
+	return expectedChannel, provider, nil
 }
 
 func normalizeMoney(value float64) (float64, error) {
@@ -618,8 +649,4 @@ func normalizeMoney(value float64) (float64, error) {
 
 func roundMoney(value float64) float64 {
 	return math.Round(value*100) / 100
-}
-
-func passimPayInvoiceAmount(depositAmount float64) float64 {
-	return roundMoney(depositAmount * (1 + passimPayFeePercent/100))
 }

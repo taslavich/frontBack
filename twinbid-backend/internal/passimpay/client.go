@@ -11,10 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"twinbid-backend/internal/payments"
 )
 
 const maxResponseBody = 1 << 20
@@ -30,26 +33,11 @@ type Client struct {
 	httpClient  *http.Client
 }
 
-type CreateInvoiceResult struct {
-	PaymentURL            string
-	ProviderPaymentID     string
-	ProviderTransactionID string
-	ProviderStatus        string
-	Raw                   json.RawMessage
-}
+var _ payments.InvoiceProvider = (*Client)(nil)
 
-type InvoiceStatus struct {
-	PaymentURL            string
-	Status                string
-	ProviderPaymentID     string
-	ProviderTransactionID string
-	TransactionHash       string
-	AmountPaid            *float64
-	AmountCredited        *float64
-	FeeService            *float64
-	FeeNetwork            *float64
-	Raw                   json.RawMessage
-}
+type CreateInvoiceResult = payments.CreateInvoiceResult
+
+type InvoiceStatus = payments.InvoiceStatus
 
 type Config struct {
 	BaseURL           string
@@ -79,20 +67,28 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
+func (c *Client) Name() string { return payments.ProviderPassimPay }
+
+func (c *Client) PaymentChannel() string { return payments.ChannelPassimPayInvoice }
+
 func (c *Client) Enabled() bool {
 	return c != nil && c.platformID > 0 && c.apiKey != "" && c.baseURL != ""
 }
 
-func (c *Client) CreateInvoice(ctx context.Context, orderID string, amount float64) (CreateInvoiceResult, error) {
+func (c *Client) CreateInvoice(ctx context.Context, req payments.CreateInvoiceRequest) (CreateInvoiceResult, error) {
 	if !c.Enabled() {
 		return CreateInvoiceResult{}, errors.New("PassimPay is not configured")
 	}
 
+	currency := strings.ToUpper(strings.TrimSpace(req.Currency))
+	if currency == "" {
+		currency = "USD"
+	}
 	payload := map[string]any{
 		"platformId": c.platformID,
-		"orderId":    orderID,
-		"amount":     fmt.Sprintf("%.2f", amount),
-		"symbol":     "USD",
+		"orderId":    req.OrderID,
+		"amount":     fmt.Sprintf("%.2f", invoiceAmount(req.Amount)),
+		"symbol":     currency,
 	}
 	if c.invoiceType >= 0 {
 		payload["type"] = c.invoiceType
@@ -197,6 +193,18 @@ func (c *Client) ParseWebhook(raw []byte) (InvoiceStatus, string, error) {
 		status.Status = "waiting"
 	}
 	return status, orderID, nil
+}
+
+func (c *Client) ParseAndVerifyWebhook(raw []byte, headers http.Header) (payments.WebhookEvent, error) {
+	signature := strings.TrimSpace(headers.Get("x-signature"))
+	if err := c.VerifyPayload(raw, signature); err != nil {
+		return payments.WebhookEvent{}, err
+	}
+	status, orderID, err := c.ParseWebhook(raw)
+	if err != nil {
+		return payments.WebhookEvent{}, err
+	}
+	return payments.WebhookEvent{OrderID: orderID, Signature: signature, Status: status}, nil
 }
 
 func ParseInvoiceStatus(payload map[string]any, raw []byte) InvoiceStatus {
@@ -363,6 +371,10 @@ func firstFloat(payload map[string]any, keys ...string) *float64 {
 		}
 	}
 	return nil
+}
+
+func invoiceAmount(depositAmount float64) float64 {
+	return math.Round(depositAmount*1.01*100) / 100
 }
 
 func normalizePath(value, fallback string) string {

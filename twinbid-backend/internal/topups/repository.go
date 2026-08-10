@@ -10,6 +10,7 @@ import (
 
 	"twinbid-backend/internal/httpx"
 	"twinbid-backend/internal/models"
+	"twinbid-backend/internal/payments"
 
 	"github.com/google/uuid"
 )
@@ -117,7 +118,7 @@ func (r *Repository) SubmitStaticHash(ctx context.Context, userID, id, txHash st
 	return item, err
 }
 
-func (r *Repository) UpdateInvoiceCreated(ctx context.Context, userID, id string, paymentURL, providerPaymentID, providerTransactionID, providerStatus string, payload json.RawMessage) (models.UserTransaction, error) {
+func (r *Repository) UpdateInvoiceCreated(ctx context.Context, userID, id, channel string, paymentURL, providerPaymentID, providerTransactionID, providerStatus string, payload json.RawMessage) (models.UserTransaction, error) {
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE user_transactions
 		SET payment_url=$3,
@@ -127,8 +128,8 @@ func (r *Repository) UpdateInvoiceCreated(ctx context.Context, userID, id string
 			provider_payload=$7,
 			status='pending',
 			updated_at=NOW()
-		WHERE id=$2 AND user_id=$1 AND payment_channel='passimpay_invoice' AND credited_at IS NULL
-		RETURNING `+returningTx, userID, id, paymentURL, providerPaymentID, providerTransactionID, providerStatus, nullableJSON(payload))
+		WHERE id=$2 AND user_id=$1 AND payment_channel=$8 AND credited_at IS NULL
+		RETURNING `+returningTx, userID, id, paymentURL, providerPaymentID, providerTransactionID, providerStatus, nullableJSON(payload), channel)
 	item, err := scanTx(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.UserTransaction{}, httpx.NotFound("invoice topup not found")
@@ -136,18 +137,18 @@ func (r *Repository) UpdateInvoiceCreated(ctx context.Context, userID, id string
 	return item, err
 }
 
-func (r *Repository) MarkInvoiceCreationUnknown(ctx context.Context, userID, id string, payload json.RawMessage, nextCheckAt time.Time) error {
+func (r *Repository) MarkInvoiceCreationUnknown(ctx context.Context, userID, id, channel string, payload json.RawMessage, nextCheckAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE user_transactions
 		SET provider_status='create_unknown', status='pending', provider_payload=$3,
 			provider_check_attempts=0, provider_next_check_at=$4,
 			provider_last_error='invoice creation result is unknown', updated_at=NOW()
-		WHERE id=$2 AND user_id=$1 AND payment_channel='passimpay_invoice' AND credited_at IS NULL
-	`, userID, id, nullableJSON(payload), nextCheckAt)
+		WHERE id=$2 AND user_id=$1 AND payment_channel=$5 AND credited_at IS NULL
+	`, userID, id, nullableJSON(payload), nextCheckAt, channel)
 	return err
 }
 
-func (r *Repository) UpdateProviderState(ctx context.Context, orderID string, state ProviderState, internalStatus *models.TopupStatus) (models.UserTransaction, error) {
+func (r *Repository) UpdateProviderState(ctx context.Context, orderID, channel string, state ProviderState, internalStatus *models.TopupStatus) (models.UserTransaction, error) {
 	statusValue := any(nil)
 	if internalStatus != nil {
 		statusValue = string(*internalStatus)
@@ -170,11 +171,11 @@ func (r *Repository) UpdateProviderState(ctx context.Context, orderID string, st
 			END,
 			provider_check_attempts=0, provider_next_check_at=NULL, provider_last_error=NULL,
 			updated_at=NOW()
-		WHERE transaction_id=$1 AND payment_channel='passimpay_invoice'
+		WHERE transaction_id=$1 AND payment_channel=$13
 		RETURNING `+returningTx,
 		orderID, state.PaymentURL, state.Status, state.ProviderPaymentID, state.ProviderTransactionID, state.TransactionHash,
 		state.AmountPaid, state.AmountCredited, state.FeeService, state.FeeNetwork,
-		nullableJSON(state.Raw), statusValue,
+		nullableJSON(state.Raw), statusValue, channel,
 	)
 	item, err := scanTx(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -183,7 +184,7 @@ func (r *Repository) UpdateProviderState(ctx context.Context, orderID string, st
 	return item, err
 }
 
-func (r *Repository) UpdateProviderStateTx(ctx context.Context, tx *sql.Tx, orderID string, state ProviderState, internalStatus *models.TopupStatus) (models.UserTransaction, error) {
+func (r *Repository) UpdateProviderStateTx(ctx context.Context, tx *sql.Tx, orderID, channel string, state ProviderState, internalStatus *models.TopupStatus) (models.UserTransaction, error) {
 	statusValue := any(nil)
 	if internalStatus != nil {
 		statusValue = string(*internalStatus)
@@ -201,11 +202,11 @@ func (r *Repository) UpdateProviderStateTx(ctx context.Context, tx *sql.Tx, orde
 			status=CASE WHEN credited_at IS NULL THEN COALESCE($12, status) ELSE status END,
 			provider_check_attempts=0, provider_next_check_at=NULL, provider_last_error=NULL,
 			updated_at=NOW()
-		WHERE transaction_id=$1 AND payment_channel='passimpay_invoice'
+		WHERE transaction_id=$1 AND payment_channel=$13
 		RETURNING `+returningTx,
 		orderID, state.PaymentURL, state.Status, state.ProviderPaymentID, state.ProviderTransactionID,
 		state.TransactionHash, state.AmountPaid, state.AmountCredited, state.FeeService, state.FeeNetwork,
-		nullableJSON(state.Raw), statusValue)
+		nullableJSON(state.Raw), statusValue, channel)
 	item, err := scanTx(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.UserTransaction{}, httpx.NotFound("invoice topup not found")
@@ -213,13 +214,13 @@ func (r *Repository) UpdateProviderStateTx(ctx context.Context, tx *sql.Tx, orde
 	return item, err
 }
 
-func (r *Repository) MarkReconcileFailure(ctx context.Context, orderID, message string, nextCheckAt time.Time) error {
+func (r *Repository) MarkReconcileFailure(ctx context.Context, orderID, channel, message string, nextCheckAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE user_transactions
 		SET provider_check_attempts=provider_check_attempts+1,
 			provider_next_check_at=$2, provider_last_error=$3, updated_at=NOW()
-		WHERE transaction_id=$1 AND payment_channel='passimpay_invoice' AND credited_at IS NULL
-	`, orderID, nextCheckAt, message)
+		WHERE transaction_id=$1 AND payment_channel=$4 AND credited_at IS NULL
+	`, orderID, nextCheckAt, message, channel)
 	return err
 }
 
@@ -276,8 +277,8 @@ func (r *Repository) MarkPromocodeUsageReleasedTx(ctx context.Context, tx *sql.T
 	return err
 }
 
-func (r *Repository) LockByOrderIDTx(ctx context.Context, tx *sql.Tx, orderID string) (models.UserTransaction, error) {
-	row := tx.QueryRowContext(ctx, selectTx+` WHERE transaction_id=$1 AND payment_channel='passimpay_invoice' FOR UPDATE`, orderID)
+func (r *Repository) LockByOrderIDTx(ctx context.Context, tx *sql.Tx, orderID, channel string) (models.UserTransaction, error) {
+	row := tx.QueryRowContext(ctx, selectTx+` WHERE transaction_id=$1 AND payment_channel=$2 FOR UPDATE`, orderID, channel)
 	item, err := scanTx(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.UserTransaction{}, httpx.NotFound("invoice topup not found")
@@ -324,18 +325,18 @@ func (r *Repository) MarkPromocodeUsageAppliedTx(ctx context.Context, tx *sql.Tx
 	return err
 }
 
-func (r *Repository) ListPendingInvoices(ctx context.Context, limit int) ([]models.UserTransaction, error) {
+func (r *Repository) ListPendingInvoices(ctx context.Context, channel string, limit int) ([]models.UserTransaction, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := r.db.QueryContext(ctx, selectTx+`
-		WHERE payment_channel='passimpay_invoice'
+		WHERE payment_channel=$1
 		  AND credited_at IS NULL
 		  AND status IN ('draft','pending','cancelled')
 		  AND COALESCE(provider_status,'') NOT IN ('paid','error')
 		  AND (provider_next_check_at IS NULL OR provider_next_check_at <= NOW())
 		ORDER BY COALESCE(provider_next_check_at, updated_at) ASC
-		LIMIT $1`, limit)
+		LIMIT $2`, channel, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -351,13 +352,13 @@ func (r *Repository) ListPendingInvoices(ctx context.Context, limit int) ([]mode
 	return out, rows.Err()
 }
 
-func (r *Repository) InsertWebhookEvent(ctx context.Context, orderID, signature string, state ProviderState, processingError string) error {
+func (r *Repository) InsertWebhookEvent(ctx context.Context, provider, orderID, signature string, state ProviderState, processingError string) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO payment_webhook_events (
 			provider, order_id, transaction_hash, signature, provider_status,
 			payload, processing_error, processed_at
-		) VALUES ('passimpay',$1,NULLIF($2,''),$3,NULLIF($4,''),$5,NULLIF($6,''),NOW())
-	`, orderID, state.TransactionHash, signature, state.Status, nullableJSON(state.Raw), processingError)
+		) VALUES ($1,$2,NULLIF($3,''),$4,NULLIF($5,''),$6,NULLIF($7,''),NOW())
+	`, provider, orderID, state.TransactionHash, signature, state.Status, nullableJSON(state.Raw), processingError)
 	return err
 }
 
@@ -459,15 +460,4 @@ func nullableJSON(raw json.RawMessage) any {
 	return string(raw)
 }
 
-type ProviderState struct {
-	PaymentURL            string
-	Status                string
-	ProviderPaymentID     string
-	ProviderTransactionID string
-	TransactionHash       string
-	AmountPaid            *float64
-	AmountCredited        *float64
-	FeeService            *float64
-	FeeNetwork            *float64
-	Raw                   json.RawMessage
-}
+type ProviderState = payments.InvoiceStatus

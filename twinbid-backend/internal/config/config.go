@@ -20,6 +20,7 @@ type Config struct {
 	Notifications    NotificationsConfig
 	SpendSync        SpendSyncConfig
 	PassimPay        PassimPayConfig
+	Cryptomus        CryptomusConfig
 	Bot              BotConfig
 	PublicAPIBaseURL string `env:"PUBLIC_API_BASE_URL" env-default:"http://localhost:8080"`
 
@@ -96,6 +97,21 @@ type PassimPayConfig struct {
 	ReconcileBatchSize    int           `env:"PASSIMPAY_RECONCILE_BATCH_SIZE" env-default:"20"`
 	ReconcileRequestDelay time.Duration `env:"PASSIMPAY_RECONCILE_REQUEST_DELAY" env-default:"150ms"`
 	ReconcileRetryDelay   time.Duration `env:"PASSIMPAY_RECONCILE_RETRY_DELAY" env-default:"5m"`
+}
+
+type CryptomusConfig struct {
+	BaseURL               string        `env:"CRYPTOMUS_BASE_URL" env-default:"https://api.cryptomus.com"`
+	MerchantUUID          string        `env:"CRYPTOMUS_MERCHANT_UUID" env-default:""`
+	PaymentAPIKey         string        `env:"CRYPTOMUS_PAYMENT_API_KEY" env-default:""`
+	CreateInvoicePath     string        `env:"CRYPTOMUS_CREATE_INVOICE_PATH" env-default:"/v1/payment"`
+	CheckInvoicePath      string        `env:"CRYPTOMUS_CHECK_INVOICE_PATH" env-default:"/v1/payment/info"`
+	WebhookURL            string        `env:"CRYPTOMUS_WEBHOOK_URL" env-default:""`
+	SubtractPercent       int           `env:"CRYPTOMUS_SUBTRACT_PERCENT" env-default:"100"`
+	Timeout               time.Duration `env:"CRYPTOMUS_TIMEOUT" env-default:"10s"`
+	ReconcileInterval     time.Duration `env:"CRYPTOMUS_RECONCILE_INTERVAL" env-default:"5m"`
+	ReconcileBatchSize    int           `env:"CRYPTOMUS_RECONCILE_BATCH_SIZE" env-default:"20"`
+	ReconcileRequestDelay time.Duration `env:"CRYPTOMUS_RECONCILE_REQUEST_DELAY" env-default:"150ms"`
+	ReconcileRetryDelay   time.Duration `env:"CRYPTOMUS_RECONCILE_RETRY_DELAY" env-default:"5m"`
 }
 
 type S3Config struct {
