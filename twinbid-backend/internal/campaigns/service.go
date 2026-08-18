@@ -166,6 +166,9 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 	c.StartTS = c.StartTS.UTC()
 	c.EndTS = c.EndTS.UTC()
 
+	if err := normalizeAndValidateIPv4TargetingFilter(&c.IP); err != nil {
+		return models.Campaign{}, err
+	}
 	if err := validateCampaign(c); err != nil {
 		return models.Campaign{}, err
 	}
@@ -184,6 +187,11 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 		before := cloneCampaignForComparison(*current)
 		oldStatus = before.Status
 		applyPatchRequest(current, req)
+		if req.IP != nil {
+			if err := normalizeAndValidateIPv4TargetingFilter(&current.IP); err != nil {
+				return err
+			}
+		}
 		if err := validateCampaign(*current); err != nil {
 			return err
 		}
