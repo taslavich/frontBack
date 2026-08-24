@@ -50,6 +50,9 @@ func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
 	if req.EvennessBySlotMode != nil {
 		current.EvennessBySlotMode = *req.EvennessBySlotMode
 	}
+	if req.BlockVPN != nil {
+		current.BlockVPN = *req.BlockVPN
+	}
 	if req.GoalTotalDollars != nil {
 		current.GoalTotalDollars = *req.GoalTotalDollars
 	}
@@ -150,6 +153,11 @@ func requiresTrafficReset(oldCampaign, newCampaign models.Campaign) bool {
 		return true
 	}
 	if normalizedString(oldCampaign.FormatType) != normalizedString(newCampaign.FormatType) {
+		return true
+	}
+	// Disabling VPN blocking expands the eligible traffic set, so AntiPerekrut
+	// must restart the campaign ramp-up. Enabling the block only narrows traffic.
+	if oldCampaign.BlockVPN && !newCampaign.BlockVPN {
 		return true
 	}
 	if normalizedString(newCampaign.FormatType) == "banner" &&

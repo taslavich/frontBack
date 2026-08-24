@@ -80,6 +80,8 @@ func TestRequiresTrafficReset(t *testing.T) {
 			edit: func(c *models.Campaign) { v := 728; c.W = &v },
 			want: false,
 		},
+		{name: "disable VPN blocking expands traffic", old: func(c *models.Campaign) { c.BlockVPN = true }, edit: func(c *models.Campaign) { c.BlockVPN = false }, want: true},
+		{name: "enable VPN blocking narrows traffic", edit: func(c *models.Campaign) { c.BlockVPN = true }, want: false},
 		{name: "disable evenness", edit: func(c *models.Campaign) { c.EvennessBySlotMode = false }, want: true},
 		{
 			name: "enable evenness",

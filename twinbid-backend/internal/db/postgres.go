@@ -92,6 +92,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			pricing_model TEXT NOT NULL,
 			base_price DECIMAL NOT NULL DEFAULT 0,
 			evenness_by_slot_mode BOOLEAN NOT NULL DEFAULT false,
+			block_vpn BOOLEAN NOT NULL DEFAULT false,
 			goal_total_dollars DECIMAL NOT NULL DEFAULT 0,
 			cum_done_dollars DECIMAL NOT NULL DEFAULT 0,
 			no_budget_notified BOOLEAN NOT NULL DEFAULT false,
@@ -109,6 +110,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS block_vpn BOOLEAN NOT NULL DEFAULT false;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
 		`CREATE TABLE IF NOT EXISTS antiperekrut_control_state (
 			id SMALLINT PRIMARY KEY,

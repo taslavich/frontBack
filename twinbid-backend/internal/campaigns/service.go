@@ -143,6 +143,7 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		PricingModel:       req.PricingModel,
 		BasePrice:          req.BasePrice,
 		EvennessBySlotMode: req.EvennessBySlotMode,
+		BlockVPN:           req.BlockVPN,
 		GoalTotalDollars:   req.GoalTotalDollars,
 		CumDoneDollars:     0,
 		StartTS:            req.StartTS,

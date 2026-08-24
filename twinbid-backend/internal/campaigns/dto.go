@@ -19,6 +19,7 @@ type UpsertCampaignRequest struct {
 	PricingModel       string                    `json:"pricing_model"`
 	BasePrice          float64                   `json:"base_price"`
 	EvennessBySlotMode bool                      `json:"evenness_by_slot_mode"`
+	BlockVPN           bool                      `json:"block_vpn"`
 	GoalTotalDollars   float64                   `json:"goal_total_dollars"`
 	StartTS            time.Time                 `json:"start_ts"`
 	EndTS              time.Time                 `json:"end_ts"`
@@ -52,6 +53,7 @@ type PatchCampaignRequest struct {
 	PricingModel       *string                    `json:"pricing_model"`
 	BasePrice          *float64                   `json:"base_price"`
 	EvennessBySlotMode *bool                      `json:"evenness_by_slot_mode"`
+	BlockVPN           *bool                      `json:"block_vpn"`
 	GoalTotalDollars   *float64                   `json:"goal_total_dollars"`
 	CumDoneDollars     *float64                   `json:"cum_done_dollars"`
 	StartTS            *time.Time                 `json:"start_ts"`
