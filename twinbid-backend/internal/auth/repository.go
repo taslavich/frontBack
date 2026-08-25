@@ -25,19 +25,28 @@ func (r *Repository) CreateUser(
 	telegram string,
 	managerTelegram string,
 	utmSource string,
+	partnerID string,
+	partner *string,
 ) (models.User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO users (login, mail, name, telegram, manager_telegram, password, verified, utm_source)
-		VALUES ($1, $1, $2, $3, $4, $5, false, $6)
+		INSERT INTO users (
+			login, mail, name, telegram, manager_telegram, password, verified, utm_source,
+			partner_id, partner
+		)
+		VALUES ($1, $1, $2, $3, $4, $5, false, $6, $7, $8)
 		RETURNING id, login, mail, name, telegram, manager_telegram,
 			goal_total_dollars, cum_done_dollars,
 			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
-	`, email, fullName, telegram, managerTelegram, password, utmSource)
+			campaign_balance_notifications, balance_treshold, low_balance_notified,
+			partner_id, partner, verified
+	`, email, fullName, telegram, managerTelegram, password, utmSource, partnerID, partner)
 	u, err := scanUser(row)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			if pqErr.Constraint == "idx_users_partner_id_unique" {
+				return models.User{}, httpx.Conflict("partner_id already exists")
+			}
 			return models.User{}, httpx.Conflict("user already exists")
 		}
 		return models.User{}, err
@@ -51,7 +60,8 @@ func (r *Repository) GetUserByEmailAndPassword(ctx context.Context, email, passw
 			goal_total_dollars, cum_done_dollars,
 			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified,
+			partner_id, partner, verified
 		FROM users
 		WHERE mail = $1 AND password = $2
 	`, email, password)
@@ -68,7 +78,8 @@ func (r *Repository) GetUserByID(ctx context.Context, userID string) (models.Use
 			goal_total_dollars, cum_done_dollars,
 			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
-			campaign_balance_notifications, balance_treshold, low_balance_notified, verified
+			campaign_balance_notifications, balance_treshold, low_balance_notified,
+			partner_id, partner, verified
 		FROM users
 		WHERE id = $1
 	`, userID)
@@ -178,7 +189,8 @@ func scanUser(row rowScanner) (models.User, error) {
 		&u.ID, &u.Login, &u.Mail, &u.Name, &telegram, &u.ManagerTelegram,
 		&u.GoalTotalDollars, &u.CumDoneDollars, &u.Balance, &u.Timezone,
 		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
-		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified, &u.Verified,
+		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified,
+		&u.PartnerID, &u.Partner, &u.Verified,
 	)
 	if err != nil {
 		return models.User{}, err

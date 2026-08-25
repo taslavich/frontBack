@@ -48,6 +48,9 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			verified BOOLEAN NOT NULL DEFAULT false,
 			password TEXT NOT NULL,
 			utm_source TEXT,
+			partner_id VARCHAR(64),
+			partner TEXT,
+			partner_withdrawn_dollars DECIMAL NOT NULL DEFAULT 0,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
@@ -66,6 +69,19 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_total_dollars DECIMAL NOT NULL DEFAULT 0;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS cum_done_dollars DECIMAL NOT NULL DEFAULT 0;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS antiperekrut_blocked BOOLEAN NOT NULL DEFAULT false;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64);`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS partner TEXT;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_withdrawn_dollars DECIMAL NOT NULL DEFAULT 0;`,
+		`UPDATE users
+		 SET partner_id = 'TB' || substr(
+			 upper(translate(encode(gen_random_bytes(8), 'base64'), '+/=', 'XYZ')),
+			 1,
+			 10
+		 )
+		 WHERE partner_id IS NULL OR partner_id = '';`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_partner_id_unique ON users(partner_id);`,
+		`ALTER TABLE users ALTER COLUMN partner_id SET NOT NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_users_partner ON users(partner);`,
 		`CREATE TABLE IF NOT EXISTS refresh_tokens (
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			token TEXT PRIMARY KEY,

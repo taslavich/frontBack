@@ -76,7 +76,7 @@ func (r *Repository) IncreaseGoalTotalTx(ctx context.Context, tx *sql.Tx, userID
 			(goal_total_dollars - cum_done_dollars) AS balance,
 			timezone, email_notifications, campaign_status_notifications,
 			low_balance_notifications, campaign_balance_notifications,
-			balance_treshold, low_balance_notified
+			balance_treshold, low_balance_notified, partner_id, partner
 	`, userID, amount)
 	updated, err := scanUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -118,7 +118,7 @@ func (r *Repository) update(ctx context.Context, q queryRunner, userID string, u
 			(goal_total_dollars - cum_done_dollars) AS balance,
 			timezone, email_notifications, campaign_status_notifications,
 			low_balance_notifications, campaign_balance_notifications,
-			balance_treshold, low_balance_notified
+			balance_treshold, low_balance_notified, partner_id, partner
 	`, userID, u.Login, u.Mail, u.Name, u.Telegram, u.ManagerTelegram,
 		u.GoalTotalDollars, u.CumDoneDollars, u.Timezone,
 		u.EmailNotifications, u.CampaignStatusNotifications, u.LowBalanceNotifications,
@@ -137,7 +137,7 @@ const selectUser = `SELECT id, login, mail, name, telegram, manager_telegram,
 	(goal_total_dollars - cum_done_dollars) AS balance,
 	timezone, email_notifications, campaign_status_notifications,
 	low_balance_notifications, campaign_balance_notifications,
-	balance_treshold, low_balance_notified FROM users`
+	balance_treshold, low_balance_notified, partner_id, partner FROM users`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -149,6 +149,7 @@ func scanUser(s scanner) (models.User, error) {
 		&u.GoalTotalDollars, &u.CumDoneDollars, &u.Balance, &u.Timezone,
 		&u.EmailNotifications, &u.CampaignStatusNotifications, &u.LowBalanceNotifications,
 		&u.CampaignBalanseNotifications, &u.BalanceTreshold, &u.LowBalanceNotified,
+		&u.PartnerID, &u.Partner,
 	)
 	if err != nil {
 		return models.User{}, err

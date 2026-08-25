@@ -40,12 +40,14 @@ func (s *Service) Signup(
 	telegram string,
 	managerTelegram string,
 	utmSource string,
+	partnerID string,
+	partner *string,
 ) (AuthResponse, error) {
-	if email == "" || password == "" || telegram == "" || managerTelegram == "" {
-		return AuthResponse{}, httpx.BadRequest("email, password, telegram and manager_telegram are required")
+	if email == "" || password == "" || telegram == "" || managerTelegram == "" || partnerID == "" {
+		return AuthResponse{}, httpx.BadRequest("email, password, telegram, manager_telegram and partner_id are required")
 	}
 
-	u, err := s.repo.CreateUser(ctx, email, password, fullName, telegram, managerTelegram, utmSource)
+	u, err := s.repo.CreateUser(ctx, email, password, fullName, telegram, managerTelegram, utmSource, partnerID, partner)
 	if err != nil {
 		return AuthResponse{}, err
 	}

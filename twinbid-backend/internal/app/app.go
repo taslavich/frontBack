@@ -15,6 +15,7 @@ import (
 	"twinbid-backend/internal/cryptomus"
 	"twinbid-backend/internal/db"
 	"twinbid-backend/internal/notifications"
+	"twinbid-backend/internal/partners"
 	"twinbid-backend/internal/passimpay"
 	"twinbid-backend/internal/payments"
 	"twinbid-backend/internal/profile"
@@ -73,6 +74,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	profileRepo := profile.NewRepository(pg)
 	profileSvc := profile.NewService(profileRepo)
 	profileHandler := profile.NewHandler(profileSvc)
+
+	partnersRepo := partners.NewRepository(pg)
+	partnersSvc := partners.NewService(partnersRepo)
+	partnersHandler := partners.NewHandler(partnersSvc)
 
 	notificationRepo := notifications.NewRepository(pg)
 	notificationSvc := notifications.NewService(notificationRepo)
@@ -139,7 +144,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
-	r := buildRouter(authSvc, authHandler, profileHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
+	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
 }
 
@@ -418,6 +423,7 @@ func buildRouter(
 	authSvc *auth.Service,
 	authHandler *auth.Handler,
 	profileHandler *profile.Handler,
+	partnersHandler *partners.Handler,
 	campaignHandler *campaigns.Handler,
 	creativeHandler *creatives.Handler,
 	promoHandler *promocodes.Handler,
@@ -455,6 +461,7 @@ func buildRouter(
 		r.Use(auth.Middleware(authSvc))
 		r.Get("/api/profile", profileHandler.Get)
 		r.Patch("/api/profile", profileHandler.Patch)
+		r.Get("/api/partners/stats", partnersHandler.Stats)
 
 		r.Get("/api/campaigns", campaignHandler.List)
 		r.Post("/api/campaigns", campaignHandler.Create)

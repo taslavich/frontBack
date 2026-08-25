@@ -11,12 +11,14 @@ type Handler struct{ svc *Service }
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
 type signupRequest struct {
-	Email           string `json:"email"`
-	Password        string `json:"password"`
-	FullName        string `json:"full_name"`
-	Telegram        string `json:"telegram"`
-	ManagerTelegram string `json:"manager_telegram"`
-	UTMSource       string `json:"utm_source"`
+	Email           string  `json:"email"`
+	Password        string  `json:"password"`
+	FullName        string  `json:"full_name"`
+	Telegram        string  `json:"telegram"`
+	ManagerTelegram string  `json:"manager_telegram"`
+	UTMSource       string  `json:"utm_source"`
+	PartnerID       string  `json:"partner_id"`
+	Partner         *string `json:"partner"`
 }
 
 type loginRequest struct {
@@ -35,9 +37,11 @@ type verifyEmailRequest struct {
 }
 
 type sessionResponse struct {
-	UserID   string `json:"user_id"`
-	Email    string `json:"email"`
-	FullName string `json:"full_name"`
+	UserID    string  `json:"user_id"`
+	Email     string  `json:"email"`
+	FullName  string  `json:"full_name"`
+	PartnerID string  `json:"partner_id"`
+	Partner   *string `json:"partner"`
 }
 
 func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +58,8 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 		req.Telegram,
 		req.ManagerTelegram,
 		req.UTMSource,
+		req.PartnerID,
+		req.Partner,
 	)
 	if err != nil {
 		httpx.Error(w, err)
@@ -118,9 +124,11 @@ func (h *Handler) Session(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.JSON(w, http.StatusOK, sessionResponse{
-		UserID:   u.ID,
-		Email:    u.Mail,
-		FullName: u.Name,
+		UserID:    u.ID,
+		Email:     u.Mail,
+		FullName:  u.Name,
+		PartnerID: u.PartnerID,
+		Partner:   u.Partner,
 	})
 }
 

@@ -40,6 +40,8 @@ type User struct {
 	CampaignBalanseNotifications bool    `json:"campaign_balanse_notifications"`
 	BalanceTreshold              float64 `json:"balance_treshold"`
 	LowBalanceNotified           bool    `json:"low_balance_notified"`
+	PartnerID                    string  `json:"partner_id"`
+	Partner                      *string `json:"partner"`
 }
 
 type Campaign struct {
