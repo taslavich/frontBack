@@ -461,8 +461,12 @@ func (s *Service) creditLockedTopup(ctx context.Context, tx *sql.Tx, current mod
 	if err != nil {
 		return models.UserTransaction{}, fmt.Errorf("mark topup credited: %w", err)
 	}
-	if _, err := s.profileSvc.IncreaseBalanceTx(ctx, tx, current.UserID, current.TotalBalanceIncrease); err != nil {
-		return models.UserTransaction{}, fmt.Errorf("increase user goal_total_dollars: %w", err)
+	promoAmount := 0.0
+	if current.BonusAmount > 0 {
+		promoAmount = current.TotalBalanceIncrease
+	}
+	if _, err := s.profileSvc.IncreaseBalanceWithPromoTx(ctx, tx, current.UserID, current.TotalBalanceIncrease, promoAmount); err != nil {
+		return models.UserTransaction{}, fmt.Errorf("increase user balance: %w", err)
 	}
 	return credited, nil
 }

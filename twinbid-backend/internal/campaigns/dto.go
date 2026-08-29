@@ -18,6 +18,7 @@ type UpsertCampaignRequest struct {
 	Vertical           models.TargetingMap       `json:"vertical"`
 	PricingModel       string                    `json:"pricing_model"`
 	BasePrice          float64                   `json:"base_price"`
+	TypeModel          int                       `json:"type_model"`
 	EvennessBySlotMode bool                      `json:"evenness_by_slot_mode"`
 	BlockVPN           bool                      `json:"block_vpn"`
 	GoalTotalDollars   float64                   `json:"goal_total_dollars"`
@@ -52,6 +53,7 @@ type PatchCampaignRequest struct {
 	Vertical           *models.TargetingMap       `json:"vertical"`
 	PricingModel       *string                    `json:"pricing_model"`
 	BasePrice          *float64                   `json:"base_price"`
+	TypeModel          *int                       `json:"type_model"`
 	EvennessBySlotMode *bool                      `json:"evenness_by_slot_mode"`
 	BlockVPN           *bool                      `json:"block_vpn"`
 	GoalTotalDollars   *float64                   `json:"goal_total_dollars"`

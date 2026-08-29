@@ -47,6 +47,9 @@ func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
 	if req.BasePrice != nil {
 		current.BasePrice = *req.BasePrice
 	}
+	if req.TypeModel != nil {
+		current.TypeModel = *req.TypeModel
+	}
 	if req.EvennessBySlotMode != nil {
 		current.EvennessBySlotMode = *req.EvennessBySlotMode
 	}

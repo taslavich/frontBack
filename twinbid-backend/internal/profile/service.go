@@ -104,3 +104,22 @@ func (s *Service) IncreaseBalanceTx(ctx context.Context, tx *sql.Tx, userID stri
 	}
 	return updated, nil
 }
+
+// IncreaseBalanceWithPromoTx atomically credits the user balance and, when the
+// top-up is promotional, the amount that must be spent under promo margin rules.
+func (s *Service) IncreaseBalanceWithPromoTx(ctx context.Context, tx *sql.Tx, userID string, amount, promoAmount float64) (models.User, error) {
+	if amount <= 0 {
+		return models.User{}, fmt.Errorf("balance increase must be positive")
+	}
+	if promoAmount < 0 || promoAmount > amount {
+		return models.User{}, fmt.Errorf("promo balance increase must be between 0 and total balance increase")
+	}
+	updated, err := s.repo.IncreaseGoalTotalAndPromoTx(ctx, tx, userID, amount, promoAmount)
+	if err != nil {
+		return models.User{}, err
+	}
+	if err := s.repo.ClearAntiPerekrutBlockedTx(ctx, tx, userID); err != nil {
+		return models.User{}, err
+	}
+	return updated, nil
+}

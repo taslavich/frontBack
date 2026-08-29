@@ -142,6 +142,7 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		Vertical:           req.Vertical,
 		PricingModel:       req.PricingModel,
 		BasePrice:          req.BasePrice,
+		TypeModel:          normalizeTypeModel(req.TypeModel),
 		EvennessBySlotMode: req.EvennessBySlotMode,
 		BlockVPN:           req.BlockVPN,
 		GoalTotalDollars:   req.GoalTotalDollars,
@@ -361,6 +362,12 @@ func validateCampaign(c models.Campaign) error {
 	if !validPricing[c.PricingModel] {
 		return httpx.BadRequest("invalid pricing_model")
 	}
+	if c.TypeModel != 1 && c.TypeModel != 2 {
+		return httpx.BadRequest("type_model must be 1 or 2")
+	}
+	if c.TypeModel == 2 && normalizedString(c.PricingModel) != "cpm" {
+		return httpx.BadRequest("type_model=2 requires pricing_model=cpm")
+	}
 	if !validTraffic[c.TrafficType] {
 		return httpx.BadRequest("invalid traffic_type")
 	}
@@ -371,6 +378,13 @@ func validateCampaign(c models.Campaign) error {
 		return httpx.BadRequest("end_ts must be after start_ts")
 	}
 	return nil
+}
+
+func normalizeTypeModel(v int) int {
+	if v == 0 {
+		return 1
+	}
+	return v
 }
 
 func valueOr(v, def string) string {

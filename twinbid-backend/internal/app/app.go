@@ -41,6 +41,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
+	if err := db.EnsureSmartPercenterSchema(ctx, pg); err != nil {
+		_ = pg.Close()
+		return nil, fmt.Errorf("smart percenter schema: %w", err)
+	}
 	log.Println("✅ Connected to Postgres")
 
 	s3, err := storage.NewS3(ctx, cfg.S3)
