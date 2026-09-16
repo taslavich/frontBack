@@ -28,7 +28,7 @@ func (r *Repository) IncreaseGoalTotalAndPromoTx(ctx context.Context, tx *sql.Tx
             (goal_total_dollars - cum_done_dollars) AS balance,
             timezone, email_notifications, campaign_status_notifications,
             low_balance_notifications, campaign_balance_notifications,
-            balance_treshold, low_balance_notified
+            balance_treshold, low_balance_notified, partner_id, partner
     `, userID, amount, promoAmount)
 	updated, err := scanUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
