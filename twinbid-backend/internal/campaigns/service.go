@@ -280,6 +280,8 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 			UserID:       campaign.UserID,
 			UserEmail:    user.Mail,
 			UserTelegram: userTelegram,
+			RTB:          campaign.RTB,
+			DSPLink:      campaign.DSPLink,
 			Creatives:    creativesPayload,
 		}); err != nil {
 			fmt.Println("GOT ERROR BOT")
