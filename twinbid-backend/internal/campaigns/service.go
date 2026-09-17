@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -143,6 +144,8 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		PricingModel:       req.PricingModel,
 		BasePrice:          req.BasePrice,
 		TypeModel:          normalizeTypeModel(req.TypeModel),
+		RTB:                req.RTB,
+		DSPLink:            req.DSPLink,
 		EvennessBySlotMode: req.EvennessBySlotMode,
 		BlockVPN:           req.BlockVPN,
 		GoalTotalDollars:   req.GoalTotalDollars,
@@ -367,6 +370,15 @@ func validateCampaign(c models.Campaign) error {
 	}
 	if c.TypeModel == 2 && normalizedString(c.PricingModel) != "cpm" {
 		return httpx.BadRequest("type_model=2 requires pricing_model=cpm")
+	}
+	if c.RTB {
+		if c.DSPLink == nil || strings.TrimSpace(*c.DSPLink) == "" {
+			return httpx.BadRequest("dsp_link is required when rtb=true")
+		}
+		u, err := url.Parse(strings.TrimSpace(*c.DSPLink))
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return httpx.BadRequest("dsp_link must be a valid http/https URL")
+		}
 	}
 	if !validTraffic[c.TrafficType] {
 		return httpx.BadRequest("invalid traffic_type")

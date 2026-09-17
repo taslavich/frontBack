@@ -30,3 +30,20 @@ func TestPatchCampaignRequestBlockVPNPresence(t *testing.T) {
 		t.Fatalf("explicit block_vpn=true must be preserved")
 	}
 }
+
+func TestPatchCampaignRequestTracksDSPLinkPresence(t *testing.T) {
+	var req PatchCampaignRequest
+	if err := json.Unmarshal([]byte(`{"dsp_link":"https://buyer.example/openrtb"}`), &req); err != nil {
+		t.Fatalf("unmarshal dsp_link: %v", err)
+	}
+	if !req.DSPLinkSet || req.DSPLink == nil || *req.DSPLink != "https://buyer.example/openrtb" {
+		t.Fatalf("unexpected dsp_link state: set=%t value=%v", req.DSPLinkSet, req.DSPLink)
+	}
+
+	if err := json.Unmarshal([]byte(`{"dsp_link":null}`), &req); err != nil {
+		t.Fatalf("unmarshal null dsp_link: %v", err)
+	}
+	if !req.DSPLinkSet || req.DSPLink != nil {
+		t.Fatalf("null dsp_link must be explicitly tracked: set=%t value=%v", req.DSPLinkSet, req.DSPLink)
+	}
+}

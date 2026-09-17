@@ -55,15 +55,15 @@ func (r *Repository) Create(ctx context.Context, c models.Campaign) (models.Camp
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO campaigns (
 			user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical, pricing_model,
-			base_price, type_model, evenness_by_slot_mode, block_vpn, goal_total_dollars, cum_done_dollars,
+			base_price, type_model, rtb, dsp_link, evenness_by_slot_mode, block_vpn, goal_total_dollars, cum_done_dollars,
 			no_budget_notified, start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip,
 			quality_type, traffic_reset_version
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31
 		)
 		RETURNING `+campaignSelectColumns+`
 	`, c.UserID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical), c.PricingModel,
-		c.BasePrice, c.TypeModel, c.EvennessBySlotMode, c.BlockVPN, c.GoalTotalDollars, c.CumDoneDollars, c.NoBudgetNotified, c.StartTS, c.EndTS,
+		c.BasePrice, c.TypeModel, c.RTB, c.DSPLink, c.EvennessBySlotMode, c.BlockVPN, c.GoalTotalDollars, c.CumDoneDollars, c.NoBudgetNotified, c.StartTS, c.EndTS,
 		jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language), jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser),
 		jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType, c.TrafficResetVersion)
 	return scanCampaign(row)
@@ -115,14 +115,14 @@ func updateCampaignRow(ctx context.Context, q queryRower, c models.Campaign) (mo
 	row := q.QueryRowContext(ctx, `
 		UPDATE campaigns SET
 			campaign_name=$2, format_type=$3, brand_name=$4, h=$5, w=$6, status=$7, traffic_type=$8, vertical=$9,
-			pricing_model=$10, base_price=$11, type_model=$12, evenness_by_slot_mode=$13, block_vpn=$14,
-			goal_total_dollars=$15, cum_done_dollars=$16, no_budget_notified=$17, start_ts=$18, end_ts=$19, active_intervals=$20,
-			country=$21, language=$22, device_type=$23, os=$24, browser=$25, site_id=$26, ip=$27, quality_type=$28,
-			traffic_reset_version=$29, updated_at=NOW()
+			pricing_model=$10, base_price=$11, type_model=$12, rtb=$13, dsp_link=$14, evenness_by_slot_mode=$15, block_vpn=$16,
+			goal_total_dollars=$17, cum_done_dollars=$18, no_budget_notified=$19, start_ts=$20, end_ts=$21, active_intervals=$22,
+			country=$23, language=$24, device_type=$25, os=$26, browser=$27, site_id=$28, ip=$29, quality_type=$30,
+			traffic_reset_version=$31, updated_at=NOW()
 		WHERE campaign_id=$1
 		RETURNING `+campaignSelectColumns+`
 	`, c.CampaignID, c.CampaignName, c.FormatType, c.BrandName, c.H, c.W, c.Status, c.TrafficType, jsonArg(c.Vertical),
-		c.PricingModel, c.BasePrice, c.TypeModel, c.EvennessBySlotMode, c.BlockVPN, c.GoalTotalDollars, c.CumDoneDollars,
+		c.PricingModel, c.BasePrice, c.TypeModel, c.RTB, c.DSPLink, c.EvennessBySlotMode, c.BlockVPN, c.GoalTotalDollars, c.CumDoneDollars,
 		c.NoBudgetNotified, c.StartTS, c.EndTS, jsonArg(c.ActiveIntervals), jsonArg(c.Country), jsonArg(c.Language),
 		jsonArg(c.DeviceType), jsonArg(c.OS), jsonArg(c.Browser), jsonArg(c.SiteID), jsonArg(c.IP), c.QualityType,
 		c.TrafficResetVersion)
@@ -152,7 +152,7 @@ func (r *Repository) Delete(ctx context.Context, userID, campaignID string) erro
 }
 
 const campaignSelectColumns = `campaign_id, user_id, campaign_name, format_type, brand_name, h, w, status, traffic_type, vertical,
-	pricing_model, base_price, type_model, evenness_by_slot_mode, block_vpn, goal_total_dollars, cum_done_dollars, no_budget_notified,
+	pricing_model, base_price, type_model, rtb, dsp_link, evenness_by_slot_mode, block_vpn, goal_total_dollars, cum_done_dollars, no_budget_notified,
 	start_ts, end_ts, active_intervals, country, language, device_type, os, browser, site_id, ip, quality_type,
 	traffic_reset_version, updated_at`
 
@@ -167,7 +167,7 @@ func scanCampaign(s scanner) (models.Campaign, error) {
 	var updatedAt sql.NullTime
 	var verticalRaw, activeRaw, countryRaw, languageRaw, deviceRaw, osRaw, browserRaw, siteRaw, ipRaw []byte
 	err := s.Scan(&c.CampaignID, &c.UserID, &c.CampaignName, &c.FormatType, &brand, &h, &w, &c.Status, &c.TrafficType, &verticalRaw,
-		&c.PricingModel, &c.BasePrice, &c.TypeModel, &c.EvennessBySlotMode, &c.BlockVPN, &c.GoalTotalDollars, &c.CumDoneDollars, &c.NoBudgetNotified,
+		&c.PricingModel, &c.BasePrice, &c.TypeModel, &c.RTB, &c.DSPLink, &c.EvennessBySlotMode, &c.BlockVPN, &c.GoalTotalDollars, &c.CumDoneDollars, &c.NoBudgetNotified,
 		&c.StartTS, &c.EndTS, &activeRaw, &countryRaw, &languageRaw, &deviceRaw, &osRaw, &browserRaw, &siteRaw, &ipRaw,
 		&c.QualityType, &c.TrafficResetVersion, &updatedAt)
 	if err != nil {

@@ -19,6 +19,8 @@ type UpsertCampaignRequest struct {
 	PricingModel       string                    `json:"pricing_model"`
 	BasePrice          float64                   `json:"base_price"`
 	TypeModel          int                       `json:"type_model"`
+	RTB                bool                      `json:"rtb"`
+	DSPLink            *string                   `json:"dsp_link"`
 	EvennessBySlotMode bool                      `json:"evenness_by_slot_mode"`
 	BlockVPN           bool                      `json:"block_vpn"`
 	GoalTotalDollars   float64                   `json:"goal_total_dollars"`
@@ -54,6 +56,9 @@ type PatchCampaignRequest struct {
 	PricingModel       *string                    `json:"pricing_model"`
 	BasePrice          *float64                   `json:"base_price"`
 	TypeModel          *int                       `json:"type_model"`
+	RTB                *bool                      `json:"rtb"`
+	DSPLink            *string                    `json:"-"`
+	DSPLinkSet         bool                       `json:"-"`
 	EvennessBySlotMode *bool                      `json:"evenness_by_slot_mode"`
 	BlockVPN           *bool                      `json:"block_vpn"`
 	GoalTotalDollars   *float64                   `json:"goal_total_dollars"`
@@ -81,6 +86,16 @@ func (p *PatchCampaignRequest) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
+	}
+	if v, ok := raw["dsp_link"]; ok {
+		aux.DSPLinkSet = true
+		if string(v) != "null" {
+			var link string
+			if err := json.Unmarshal(v, &link); err != nil {
+				return err
+			}
+			aux.DSPLink = &link
+		}
 	}
 	if v, ok := raw["brand_name"]; ok {
 		aux.BrandNameSet = true

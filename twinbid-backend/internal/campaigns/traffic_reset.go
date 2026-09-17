@@ -50,6 +50,12 @@ func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
 	if req.TypeModel != nil {
 		current.TypeModel = *req.TypeModel
 	}
+	if req.RTB != nil {
+		current.RTB = *req.RTB
+	}
+	if req.DSPLinkSet {
+		current.DSPLink = req.DSPLink
+	}
 	if req.EvennessBySlotMode != nil {
 		current.EvennessBySlotMode = *req.EvennessBySlotMode
 	}
@@ -135,6 +141,9 @@ func requiresTrafficReset(oldCampaign, newCampaign models.Campaign) bool {
 		return true
 	}
 	if normalizedString(oldCampaign.PricingModel) != normalizedString(newCampaign.PricingModel) {
+		return true
+	}
+	if oldCampaign.RTB != newCampaign.RTB || normalizedOptionalString(oldCampaign.DSPLink) != normalizedOptionalString(newCampaign.DSPLink) {
 		return true
 	}
 	if filterExpands(oldCampaign.Country, newCampaign.Country) ||
@@ -295,4 +304,11 @@ func equalOptionalInt(left, right *int) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+
+func normalizedOptionalString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v)
 }

@@ -107,6 +107,8 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			vertical JSONB NOT NULL DEFAULT '{}'::jsonb,
 			pricing_model TEXT NOT NULL,
 			base_price DECIMAL NOT NULL DEFAULT 0,
+			rtb BOOLEAN NOT NULL DEFAULT false,
+			dsp_link TEXT,
 			evenness_by_slot_mode BOOLEAN NOT NULL DEFAULT false,
 			block_vpn BOOLEAN NOT NULL DEFAULT false,
 			goal_total_dollars DECIMAL NOT NULL DEFAULT 0,
@@ -127,6 +129,8 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS block_vpn BOOLEAN NOT NULL DEFAULT false;`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS rtb BOOLEAN NOT NULL DEFAULT false;`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS dsp_link TEXT;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
 		`CREATE TABLE IF NOT EXISTS antiperekrut_control_state (
 			id SMALLINT PRIMARY KEY,
