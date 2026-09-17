@@ -237,6 +237,16 @@ func TestApplyPatchRequestNoBudgetReset(t *testing.T) {
 	}
 }
 
+func TestValidateCampaignAllowsCabinetVideo(t *testing.T) {
+	campaign := baseResetCampaign()
+	campaign.RTB = false
+	campaign.FormatType = "video"
+
+	if err := validateCampaign(campaign); err != nil {
+		t.Fatalf("expected cabinet video campaign to be allowed, got %v", err)
+	}
+}
+
 func TestValidateCampaignRejectsRTBVideo(t *testing.T) {
 	campaign := baseResetCampaign()
 	campaign.RTB = true
