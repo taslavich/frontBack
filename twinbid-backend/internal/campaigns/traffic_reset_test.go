@@ -237,28 +237,32 @@ func TestApplyPatchRequestNoBudgetReset(t *testing.T) {
 	}
 }
 
-func TestValidateCampaignAllowsCabinetVideo(t *testing.T) {
-	campaign := baseResetCampaign()
-	campaign.RTB = false
-	campaign.FormatType = "video"
-
-	if err := validateCampaign(campaign); err != nil {
-		t.Fatalf("expected cabinet video campaign to be allowed, got %v", err)
+func TestValidateCampaignRejectsVideoForAllCampaigns(t *testing.T) {
+	tests := []struct {
+		name string
+		rtb  bool
+	}{
+		{name: "cabinet", rtb: false},
+		{name: "rtb", rtb: true},
 	}
-}
 
-func TestValidateCampaignRejectsRTBVideo(t *testing.T) {
-	campaign := baseResetCampaign()
-	campaign.RTB = true
-	campaign.FormatType = "video"
-	link := "https://buyer.example/openrtb"
-	campaign.DSPLink = &link
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			campaign := baseResetCampaign()
+			campaign.RTB = tt.rtb
+			campaign.FormatType = "video"
+			if tt.rtb {
+				link := "https://buyer.example/openrtb"
+				campaign.DSPLink = &link
+			}
 
-	err := validateCampaign(campaign)
-	if err == nil {
-		t.Fatal("expected RTB video campaign to be rejected")
-	}
-	if !strings.Contains(err.Error(), "rtb campaigns do not support video") {
-		t.Fatalf("unexpected error: %v", err)
+			err := validateCampaign(campaign)
+			if err == nil {
+				t.Fatal("expected video campaign to be rejected")
+			}
+			if !strings.Contains(err.Error(), "invalid format_type") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }

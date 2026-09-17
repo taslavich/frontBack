@@ -50,7 +50,7 @@ func NewService(repo *Repository, creativeRepo interface {
 }
 
 var (
-	validFormat  = map[string]bool{"banner": true, "popunder": true, "native": true, "push": true, "video": true}
+	validFormat  = map[string]bool{"banner": true, "popunder": true, "native": true, "push": true}
 	validPricing = map[string]bool{"cpm": true, "cpc": true}
 	validTraffic = map[string]bool{"mainstream": true, "adult": true, "mixed": true}
 	validStatus  = map[string]bool{"active": true, "paused": true, "waiting": true, "draft": true, "completed": true, "moderation": true, "no_budget": true, "deleted": true}
@@ -358,9 +358,6 @@ func validateCampaign(c models.Campaign) error {
 	}
 	if c.QualityType == "" {
 		return httpx.BadRequest("quality_type is required")
-	}
-	if c.RTB && normalizedString(c.FormatType) == "video" {
-		return httpx.BadRequest("rtb campaigns do not support video")
 	}
 	if !validFormat[c.FormatType] {
 		return httpx.BadRequest("invalid format_type")
