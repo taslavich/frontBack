@@ -359,6 +359,9 @@ func validateCampaign(c models.Campaign) error {
 	if c.QualityType == "" {
 		return httpx.BadRequest("quality_type is required")
 	}
+	if c.RTB && normalizedString(c.FormatType) == "video" {
+		return httpx.BadRequest("rtb campaigns do not support video")
+	}
 	if !validFormat[c.FormatType] {
 		return httpx.BadRequest("invalid format_type")
 	}

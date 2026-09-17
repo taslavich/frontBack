@@ -2,6 +2,7 @@ package campaigns
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,5 +234,21 @@ func TestApplyPatchRequestNoBudgetReset(t *testing.T) {
 				t.Fatalf("NoBudgetNotified=%v want %v; campaign=%+v", current.NoBudgetNotified, tt.want, current)
 			}
 		})
+	}
+}
+
+func TestValidateCampaignRejectsRTBVideo(t *testing.T) {
+	campaign := baseResetCampaign()
+	campaign.RTB = true
+	campaign.FormatType = "video"
+	link := "https://buyer.example/openrtb"
+	campaign.DSPLink = &link
+
+	err := validateCampaign(campaign)
+	if err == nil {
+		t.Fatal("expected RTB video campaign to be rejected")
+	}
+	if !strings.Contains(err.Error(), "rtb campaigns do not support video") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
