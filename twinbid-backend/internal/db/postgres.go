@@ -111,6 +111,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			dsp_link TEXT,
 			evenness_by_slot_mode BOOLEAN NOT NULL DEFAULT false,
 			block_vpn BOOLEAN NOT NULL DEFAULT false,
+			antiperekrut_max_traffic_percent NUMERIC(5,2) NOT NULL DEFAULT 100.00 CHECK (antiperekrut_max_traffic_percent >= 0.01 AND antiperekrut_max_traffic_percent <= 100.00),
 			goal_total_dollars DECIMAL NOT NULL DEFAULT 0,
 			cum_done_dollars DECIMAL NOT NULL DEFAULT 0,
 			no_budget_notified BOOLEAN NOT NULL DEFAULT false,
@@ -132,6 +133,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS rtb BOOLEAN NOT NULL DEFAULT false;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS dsp_link TEXT;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS antiperekrut_max_traffic_percent NUMERIC(5,2) NOT NULL DEFAULT 100.00 CHECK (antiperekrut_max_traffic_percent >= 0.01 AND antiperekrut_max_traffic_percent <= 100.00);`,
 		`CREATE TABLE IF NOT EXISTS antiperekrut_control_state (
 			id SMALLINT PRIMARY KEY,
 			global_reset_generation BIGINT NOT NULL DEFAULT 0,
