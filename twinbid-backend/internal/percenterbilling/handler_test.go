@@ -19,13 +19,13 @@ func (f *fakePromoApplier) ApplyPromoSpend(_ context.Context, req ApplyRequest) 
 	if f.err != nil {
 		return PromoState{}, f.err
 	}
-	return PromoState{Remaining: 4.5, Revision: 9}, nil
+	return PromoState{Remaining: 4.5, Revision: 9, Generation: 4}, nil
 }
 
 func TestHandlerApplyRequiresInternalSecretAndReturnsState(t *testing.T) {
 	fake := &fakePromoApplier{}
 	h := NewHandler(fake, "secret")
-	payload := ApplyRequest{EventID: "event", UserID: "user", CampaignID: "campaign", SpendDelta: 1.25}
+	payload := ApplyRequest{EventID: "event", UserID: "user", CampaignID: "campaign", PromoGeneration: 4, SpendDelta: 1.25}
 	body, _ := json.Marshal(payload)
 
 	unauthorized := httptest.NewRequest(http.MethodPost, "/api/internal/percenter/promo-spend", bytes.NewReader(body))
@@ -48,14 +48,15 @@ func TestHandlerApplyRequiresInternalSecretAndReturnsState(t *testing.T) {
 	var envelope struct {
 		Success bool `json:"success"`
 		Data    struct {
-			Remaining float64 `json:"remaining"`
-			Revision  int64   `json:"revision"`
+			Remaining  float64 `json:"remaining"`
+			Revision   int64   `json:"revision"`
+			Generation int64   `json:"generation"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !envelope.Success || envelope.Data.Remaining != 4.5 || envelope.Data.Revision != 9 {
+	if !envelope.Success || envelope.Data.Remaining != 4.5 || envelope.Data.Revision != 9 || envelope.Data.Generation != 4 {
 		t.Fatalf("unexpected promo state response: %+v", envelope)
 	}
 }
@@ -63,7 +64,7 @@ func TestHandlerApplyRequiresInternalSecretAndReturnsState(t *testing.T) {
 func TestHandlerApplyReturnsConflictForReusedEventIDWithDifferentPayload(t *testing.T) {
 	fake := &fakePromoApplier{err: ErrEventPayloadConflict}
 	h := NewHandler(fake, "secret")
-	body, _ := json.Marshal(ApplyRequest{EventID: "event", UserID: "user", CampaignID: "campaign", SpendDelta: 1})
+	body, _ := json.Marshal(ApplyRequest{EventID: "event", UserID: "user", CampaignID: "campaign", PromoGeneration: 4, SpendDelta: 1})
 	req := httptest.NewRequest(http.MethodPost, "/api/internal/percenter/promo-spend", bytes.NewReader(body))
 	req.Header.Set("X-Bot-Secret", "secret")
 	rec := httptest.NewRecorder()

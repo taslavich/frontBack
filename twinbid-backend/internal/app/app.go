@@ -140,9 +140,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret, cfg.Bot.AdminUserID)
 
 	statsHandler := stats.NewHandler(statsSvc)
-	percenterBillingHandler := percenterbilling.NewHandler(percenterbilling.NewRepository(pg), cfg.Bot.InternalSecret)
+	percenterBillingRepo := percenterbilling.NewRepository(pg)
+	percenterBillingHandler := percenterbilling.NewHandler(percenterBillingRepo, cfg.Bot.InternalSecret)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
+	go runPromoSpendLedgerCleanupTicker(ctx, percenterBillingRepo)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
 	go runInvoiceExpiryTicker(ctx, topupSvc)
@@ -152,6 +154,54 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, percenterBillingHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
+}
+
+const (
+	promoSpendLedgerCleanupInterval  = time.Hour
+	promoSpendLedgerCleanupMinAge    = 24 * time.Hour
+	promoSpendLedgerCleanupTimeout   = 30 * time.Second
+	promoSpendLedgerCleanupBatchSize = 10_000
+)
+
+func runPromoSpendLedgerCleanupTicker(ctx context.Context, repo *percenterbilling.Repository) {
+	run := func() {
+		cleanupCtx, cancel := context.WithTimeout(ctx, promoSpendLedgerCleanupTimeout)
+		defer cancel()
+
+		var totalDeleted int64
+		for {
+			deleted, err := repo.CleanupRetiredPromoSpendEvents(cleanupCtx, promoSpendLedgerCleanupMinAge, promoSpendLedgerCleanupBatchSize)
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("promo spend ledger cleanup failed after deleting %d rows: %v", totalDeleted, err)
+				}
+				return
+			}
+			totalDeleted += deleted
+			if deleted < promoSpendLedgerCleanupBatchSize {
+				break
+			}
+			if err := cleanupCtx.Err(); err != nil {
+				return
+			}
+		}
+		if totalDeleted > 0 {
+			log.Printf("promo spend ledger cleanup completed: deleted=%d", totalDeleted)
+		}
+	}
+
+	// Run shortly after startup through the same bounded path, then hourly.
+	run()
+	ticker := time.NewTicker(promoSpendLedgerCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *spendsync.Service) {

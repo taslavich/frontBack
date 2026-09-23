@@ -28,8 +28,11 @@ const increaseGoalTotalAndPromoSQL = `
     `
 
 // IncreaseGoalTotalAndPromoTx credits the normal balance and, independently,
-// the amount whose future spend must use promo margin rules. The returned user
-// uses the legacy profile projection; promo_spend_remaining is internal state.
+// the amount whose future spend must use promo margin rules. The users trigger
+// bumps promo_revision on every balance change and starts a new promo_generation
+// only when an exhausted/inactive promo becomes positive again. A top-up while
+// promo is already active stays in the same generation. The returned user uses
+// the legacy profile projection; promo state is internal.
 func (r *Repository) IncreaseGoalTotalAndPromoTx(ctx context.Context, tx *sql.Tx, userID string, amount, promoAmount float64) (models.User, error) {
 	row := tx.QueryRowContext(ctx, increaseGoalTotalAndPromoSQL, userID, amount, promoAmount)
 	updated, err := scanUser(row)
