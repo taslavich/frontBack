@@ -18,6 +18,7 @@ import (
 	"twinbid-backend/internal/partners"
 	"twinbid-backend/internal/passimpay"
 	"twinbid-backend/internal/payments"
+	"twinbid-backend/internal/percenterbilling"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 	"twinbid-backend/internal/spendsync"
@@ -139,6 +140,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret, cfg.Bot.AdminUserID)
 
 	statsHandler := stats.NewHandler(statsSvc)
+	percenterBillingHandler := percenterbilling.NewHandler(percenterbilling.NewRepository(pg), cfg.Bot.InternalSecret)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
@@ -148,7 +150,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
-	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler)
+	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, percenterBillingHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
 }
 
@@ -434,6 +436,7 @@ func buildRouter(
 	topupHandler *topups.Handler,
 	notificationHandler *notifications.Handler,
 	statsHandler *stats.Handler,
+	percenterBillingHandler *percenterbilling.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -445,6 +448,7 @@ func buildRouter(
 	r.Get("/api/media/{imageID}", creativeHandler.Media)
 	r.Head("/api/media/{imageID}", creativeHandler.Media)
 	r.Post("/api/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
+	r.Post("/api/internal/percenter/promo-spend", percenterBillingHandler.Apply)
 	r.Post("/api/webhooks/passimpay", topupHandler.PassimPayWebhook)
 	r.Post("/api/webhooks/cryptomus", topupHandler.CryptomusWebhook)
 

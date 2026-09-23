@@ -367,8 +367,8 @@ func validateCampaign(c models.Campaign) error {
 	if !validPricing[c.PricingModel] {
 		return httpx.BadRequest("invalid pricing_model")
 	}
-	if c.TypeModel != 1 && c.TypeModel != 2 {
-		return httpx.BadRequest("type_model must be 1 or 2")
+	if c.TypeModel != 1 && c.TypeModel != 2 && c.TypeModel != 3 {
+		return httpx.BadRequest("type_model must be 1, 2 or 3")
 	}
 	if c.TypeModel == 2 && normalizedString(c.PricingModel) != "cpm" {
 		return httpx.BadRequest("type_model=2 requires pricing_model=cpm")

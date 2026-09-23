@@ -266,3 +266,11 @@ func TestValidateCampaignRejectsVideoForAllCampaigns(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCampaignAllowsMapOnlyTypeModelThree(t *testing.T) {
+	campaign := baseResetCampaign()
+	campaign.TypeModel = 3
+	if err := validateCampaign(campaign); err != nil {
+		t.Fatalf("type_model=3 map-only campaign must be valid: %v", err)
+	}
+}

@@ -71,16 +71,16 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	defer tx.Rollback()
 
 	if len(userIDs) > 0 {
+		// promo_spend_remaining is mutated only by the idempotent realtime
+		// percenter billing endpoint. This ClickHouse reconciliation updates
+		// cumulative spend/balance only; decrementing promo here as well would
+		// double-consume the same billed traffic.
 		const updateUsers = `
 WITH incoming(id, cum_done_dollars) AS (
     SELECT * FROM unnest($1::uuid[], $2::numeric[])
 )
 UPDATE users AS u
-SET promo_spend_remaining = GREATEST(
-        0,
-        u.promo_spend_remaining - GREATEST(incoming.cum_done_dollars - u.cum_done_dollars, 0)
-    ),
-    cum_done_dollars = incoming.cum_done_dollars
+SET cum_done_dollars = incoming.cum_done_dollars
 FROM incoming
 WHERE u.id = incoming.id`
 		execResult, err := tx.ExecContext(ctx, updateUsers, pq.Array(userIDs), pq.Array(userAmounts))
