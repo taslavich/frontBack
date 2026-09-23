@@ -9,11 +9,7 @@ import (
 	"twinbid-backend/internal/models"
 )
 
-// IncreaseGoalTotalAndPromoTx credits the normal balance and, independently,
-// the amount whose future spend must use promo margin rules. The returned user
-// uses the legacy profile projection; promo_spend_remaining is internal state.
-func (r *Repository) IncreaseGoalTotalAndPromoTx(ctx context.Context, tx *sql.Tx, userID string, amount, promoAmount float64) (models.User, error) {
-	row := tx.QueryRowContext(ctx, `
+const increaseGoalTotalAndPromoSQL = `
         UPDATE users
         SET goal_total_dollars = goal_total_dollars + $2,
             promo_spend_remaining = promo_spend_remaining + $3,
@@ -29,7 +25,13 @@ func (r *Repository) IncreaseGoalTotalAndPromoTx(ctx context.Context, tx *sql.Tx
             timezone, email_notifications, campaign_status_notifications,
             low_balance_notifications, campaign_balance_notifications,
             balance_treshold, low_balance_notified, partner_id, partner
-    `, userID, amount, promoAmount)
+    `
+
+// IncreaseGoalTotalAndPromoTx credits the normal balance and, independently,
+// the amount whose future spend must use promo margin rules. The returned user
+// uses the legacy profile projection; promo_spend_remaining is internal state.
+func (r *Repository) IncreaseGoalTotalAndPromoTx(ctx context.Context, tx *sql.Tx, userID string, amount, promoAmount float64) (models.User, error) {
+	row := tx.QueryRowContext(ctx, increaseGoalTotalAndPromoSQL, userID, amount, promoAmount)
 	updated, err := scanUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.User{}, httpx.NotFound("user not found")

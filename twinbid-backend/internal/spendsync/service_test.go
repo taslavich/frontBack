@@ -1,6 +1,7 @@
 package spendsync
 
 import (
+	"strings"
 	"testing"
 
 	"twinbid-backend/internal/stats"
@@ -38,5 +39,15 @@ func TestSplitTotalsRejectsInvalidRows(t *testing.T) {
 		if _, _, _, _, err := splitTotals([]stats.CumulativeSpendTotal{total}); err == nil {
 			t.Fatalf("expected error for %#v", total)
 		}
+	}
+}
+
+func TestUserSpendSyncDoesNotMutatePromoState(t *testing.T) {
+	query := strings.ToLower(updateUsersCumulativeSpendSQL)
+	if strings.Contains(query, "promo_spend_remaining") || strings.Contains(query, "promo_revision") {
+		t.Fatalf("minute spend sync must not mutate realtime promo state: %s", updateUsersCumulativeSpendSQL)
+	}
+	if !strings.Contains(query, "cum_done_dollars") {
+		t.Fatalf("spend sync query no longer updates cumulative spend: %s", updateUsersCumulativeSpendSQL)
 	}
 }

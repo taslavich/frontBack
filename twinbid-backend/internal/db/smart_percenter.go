@@ -10,7 +10,16 @@ import (
 // cabinet backend for Smart/Percenter campaigns. ORTB/ADV only consumes this
 // state and must not own migrations for the users/campaigns tables.
 func EnsureSmartPercenterSchema(ctx context.Context, db *sql.DB) error {
-	queries := []string{
+	for _, q := range smartPercenterSchemaQueries() {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("smart percenter schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func smartPercenterSchemaQueries() []string {
+	return []string{
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_spend_remaining DECIMAL NOT NULL DEFAULT 0;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_revision BIGINT NOT NULL DEFAULT 0;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS type_model INT NOT NULL DEFAULT 1;`,
@@ -72,16 +81,27 @@ func EnsureSmartPercenterSchema(ctx context.Context, db *sql.DB) error {
 			RETURN NEW;
 		END;
 		$$;`,
-		`DROP TRIGGER IF EXISTS users_promo_revision_bump ON users;`,
-		`CREATE TRIGGER users_promo_revision_bump
-		BEFORE UPDATE OF promo_spend_remaining, promo_revision ON users
-		FOR EACH ROW
-		EXECUTE FUNCTION bump_users_promo_revision();`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1
+				FROM pg_trigger tr
+				JOIN pg_class t ON t.oid = tr.tgrelid
+				JOIN pg_namespace n ON n.oid = t.relnamespace
+				WHERE tr.tgname = 'users_promo_revision_bump'
+				  AND t.relname = 'users'
+				  AND n.nspname = current_schema()
+				  AND NOT tr.tgisinternal
+			) THEN
+				BEGIN
+					CREATE TRIGGER users_promo_revision_bump
+					BEFORE UPDATE OF promo_spend_remaining, promo_revision ON users
+					FOR EACH ROW
+					EXECUTE FUNCTION bump_users_promo_revision();
+				EXCEPTION
+					WHEN duplicate_object THEN NULL;
+				END;
+			END IF;
+		END $$;`,
 	}
-	for _, q := range queries {
-		if _, err := db.ExecContext(ctx, q); err != nil {
-			return fmt.Errorf("smart percenter schema: %w", err)
-		}
-	}
-	return nil
 }

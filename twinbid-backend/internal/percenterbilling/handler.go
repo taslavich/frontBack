@@ -3,6 +3,7 @@ package percenterbilling
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"net/http"
 
 	"twinbid-backend/internal/httpx"
@@ -33,6 +34,10 @@ func (h *Handler) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 	state, err := h.repo.ApplyPromoSpend(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, ErrEventPayloadConflict) {
+			httpx.Error(w, httpx.Conflict(err.Error()))
+			return
+		}
 		httpx.Error(w, err)
 		return
 	}

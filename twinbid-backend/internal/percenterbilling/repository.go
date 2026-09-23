@@ -14,6 +14,8 @@ type Repository struct {
 	db *sql.DB
 }
 
+var ErrEventPayloadConflict = errors.New("promo spend event payload conflict")
+
 type ApplyRequest struct {
 	EventID    string  `json:"event_id"`
 	UserID     string  `json:"user_id"`
@@ -74,7 +76,7 @@ func (r *Repository) ApplyPromoSpend(ctx context.Context, req ApplyRequest) (Pro
 			  AND spend_delta = $4
 		`, req.EventID, req.UserID, req.CampaignID, req.SpendDelta).Scan(&marker); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return PromoState{}, fmt.Errorf("promo spend event %q conflicts with existing ledger payload", req.EventID)
+				return PromoState{}, fmt.Errorf("%w: event_id %q already exists with different user/campaign/spend", ErrEventPayloadConflict, req.EventID)
 			}
 			return PromoState{}, fmt.Errorf("verify existing promo spend marker: %w", err)
 		}

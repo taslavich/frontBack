@@ -33,6 +33,15 @@ type Result struct {
 	UpdatedCampaigns int64
 }
 
+const updateUsersCumulativeSpendSQL = `
+WITH incoming(id, cum_done_dollars) AS (
+    SELECT * FROM unnest($1::uuid[], $2::numeric[])
+)
+UPDATE users AS u
+SET cum_done_dollars = incoming.cum_done_dollars
+FROM incoming
+WHERE u.id = incoming.id`
+
 func NewService(postgres *sql.DB, source source) *Service {
 	return &Service{postgres: postgres, source: source}
 }
@@ -75,15 +84,7 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		// percenter billing endpoint. This ClickHouse reconciliation updates
 		// cumulative spend/balance only; decrementing promo here as well would
 		// double-consume the same billed traffic.
-		const updateUsers = `
-WITH incoming(id, cum_done_dollars) AS (
-    SELECT * FROM unnest($1::uuid[], $2::numeric[])
-)
-UPDATE users AS u
-SET cum_done_dollars = incoming.cum_done_dollars
-FROM incoming
-WHERE u.id = incoming.id`
-		execResult, err := tx.ExecContext(ctx, updateUsers, pq.Array(userIDs), pq.Array(userAmounts))
+		execResult, err := tx.ExecContext(ctx, updateUsersCumulativeSpendSQL, pq.Array(userIDs), pq.Array(userAmounts))
 		if err != nil {
 			return Result{}, fmt.Errorf("bulk update users cumulative spend: %w", err)
 		}

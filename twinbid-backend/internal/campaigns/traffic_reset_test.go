@@ -1,6 +1,7 @@
 package campaigns
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -272,5 +273,26 @@ func TestValidateCampaignAllowsMapOnlyTypeModelThree(t *testing.T) {
 	campaign.TypeModel = 3
 	if err := validateCampaign(campaign); err != nil {
 		t.Fatalf("type_model=3 map-only campaign must be valid: %v", err)
+	}
+}
+
+func TestValidateCampaignSupportsTypeModelsOneTwoThree(t *testing.T) {
+	for _, typeModel := range []int{1, 2, 3} {
+		t.Run(fmt.Sprintf("type_model_%d", typeModel), func(t *testing.T) {
+			campaign := baseResetCampaign()
+			campaign.TypeModel = typeModel
+			if err := validateCampaign(campaign); err != nil {
+				t.Fatalf("type_model=%d must be supported: %v", typeModel, err)
+			}
+		})
+	}
+}
+
+func TestValidateCampaignTypeModelTwoRequiresCPM(t *testing.T) {
+	campaign := baseResetCampaign()
+	campaign.TypeModel = 2
+	campaign.PricingModel = "cpc"
+	if err := validateCampaign(campaign); err == nil || !strings.Contains(err.Error(), "type_model=2 requires pricing_model=cpm") {
+		t.Fatalf("unexpected validation result: %v", err)
 	}
 }
