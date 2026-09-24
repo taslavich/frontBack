@@ -40,7 +40,7 @@ func newAdvertiserAPIHandlerWithRepository(repo advertiserAPIRepository, stats a
 
 // Query handles the public advertiser statistics API.
 // Example:
-// GET /api/advertiser/stats?token=adv_...&campaign_id=<uuid>&from=2026-09-01&to=2026-09-24&group_by=date
+// GET /api/advertiser/stats?token=adv_...&campaign_id=<optional-uuid>&from=2026-09-01&to=2026-09-24&group_by=date
 func (h *AdvertiserAPIHandler) Query(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	token := advertiserTokenFromRequest(r)
@@ -65,12 +65,8 @@ func (h *AdvertiserAPIHandler) Query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if campaignID == "" || from == "" || to == "" || groupBy == "" {
-		httpx.Error(w, httpx.BadRequest("campaign_id, from, to and group_by are required"))
-		return
-	}
-	if err := validateUUID(campaignID, "campaign_id"); err != nil {
-		httpx.Error(w, err)
+	if from == "" || to == "" || groupBy == "" {
+		httpx.Error(w, httpx.BadRequest("from, to and group_by are required"))
 		return
 	}
 	if _, ok := groupColumns[groupBy]; !ok {
@@ -82,20 +78,29 @@ func (h *AdvertiserAPIHandler) Query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owned, err := h.repo.CampaignBelongsToUser(r.Context(), userID, campaignID)
-	if err != nil {
-		httpx.Error(w, err)
-		return
-	}
-	if !owned {
-		httpx.Error(w, httpx.NotFound("campaign not found"))
-		return
+	var campaignIDs []string
+	if campaignID != "" {
+		if err := validateUUID(campaignID, "campaign_id"); err != nil {
+			httpx.Error(w, err)
+			return
+		}
+
+		owned, err := h.repo.CampaignBelongsToUser(r.Context(), userID, campaignID)
+		if err != nil {
+			httpx.Error(w, err)
+			return
+		}
+		if !owned {
+			httpx.Error(w, httpx.NotFound("campaign not found"))
+			return
+		}
+		campaignIDs = []string{campaignID}
 	}
 
 	res, err := h.stats.Query(r.Context(), userID, QueryRequest{
 		From:        from,
 		To:          to,
-		CampaignIDs: []string{campaignID},
+		CampaignIDs: campaignIDs,
 		GroupBy:     groupBy,
 	})
 	if err != nil {

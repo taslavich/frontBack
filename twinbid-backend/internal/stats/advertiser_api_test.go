@@ -17,10 +17,11 @@ const (
 )
 
 type fakeAdvertiserAPIRepository struct {
-	userID     string
-	consumeErr error
-	owned      bool
-	ownedErr   error
+	userID      string
+	consumeErr  error
+	owned       bool
+	ownedErr    error
+	ownedCalled int
 }
 
 func (f *fakeAdvertiserAPIRepository) ConsumeAdvertiserToken(context.Context, string) (string, error) {
@@ -31,6 +32,7 @@ func (f *fakeAdvertiserAPIRepository) ConsumeAdvertiserToken(context.Context, st
 }
 
 func (f *fakeAdvertiserAPIRepository) CampaignBelongsToUser(context.Context, string, string) (bool, error) {
+	f.ownedCalled++
 	return f.owned, f.ownedErr
 }
 
@@ -73,6 +75,36 @@ func TestAdvertiserAPIQueryScopesStatsToTokenOwnerAndCampaign(t *testing.T) {
 	}
 	if statsSvc.req.GroupBy != GroupByDate || statsSvc.req.From != "2026-09-01" || statsSvc.req.To != "2026-09-24" {
 		t.Fatalf("unexpected stats request: %#v", statsSvc.req)
+	}
+}
+
+func TestAdvertiserAPIQueryWithoutCampaignReturnsAllTokenOwnerCampaigns(t *testing.T) {
+	repo := &fakeAdvertiserAPIRepository{userID: testAdvertiserUser}
+	statsSvc := &fakeAdvertiserStatsQuerier{res: QueryResponse{Rows: map[string]Summary{}}}
+	h := newAdvertiserAPIHandlerWithRepository(repo, statsSvc)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/advertiser/stats?token="+testAdvertiserToken+"&from=2026-09-01&to=2026-09-24&group_by=campaign", nil)
+	rec := httptest.NewRecorder()
+	h.Query(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !statsSvc.called {
+		t.Fatal("stats service was not called")
+	}
+	if statsSvc.userID != testAdvertiserUser {
+		t.Fatalf("wrong user scope: %q", statsSvc.userID)
+	}
+	if len(statsSvc.req.CampaignIDs) != 0 {
+		t.Fatalf("expected all campaigns, got explicit campaign scope: %#v", statsSvc.req.CampaignIDs)
+	}
+	if statsSvc.req.GroupBy != GroupByCampaign {
+		t.Fatalf("unexpected group_by: %q", statsSvc.req.GroupBy)
+	}
+	if repo.ownedCalled != 0 {
+		t.Fatalf("campaign ownership must not be queried when campaign_id is omitted, called %d times", repo.ownedCalled)
 	}
 }
 
