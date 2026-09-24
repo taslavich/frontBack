@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -26,12 +27,13 @@ type Service struct {
 }
 
 type Result struct {
-	SourceRows       int
-	UserTotals       int
-	CampaignTotals   int
-	UpdatedUsers     int64
-	UpdatedCampaigns int64
-	StoppedCampaigns int64
+	SourceRows              int
+	UserTotals              int
+	CampaignTotals          int
+	UpdatedUsers            int64
+	UpdatedCampaigns        int64
+	StoppedCampaigns        int64
+	ClickHouseQueryDuration time.Duration
 }
 
 const updateUsersCumulativeSpendSQL = `
@@ -88,28 +90,31 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		return Result{}, errors.New("spend sync ClickHouse source is nil")
 	}
 
+	clickHouseStartedAt := time.Now()
 	totals, err := s.source.CumulativeSpend(ctx)
+	clickHouseDuration := time.Since(clickHouseStartedAt)
+	result := Result{
+		SourceRows:              len(totals),
+		ClickHouseQueryDuration: clickHouseDuration,
+	}
 	if err != nil {
-		return Result{}, fmt.Errorf("query ClickHouse cumulative spend: %w", err)
+		return result, fmt.Errorf("query ClickHouse cumulative spend: %w", err)
 	}
 
 	userIDs, userAmounts, campaignIDs, campaignAmounts, err := splitTotals(totals)
 	if err != nil {
-		return Result{}, err
+		return result, err
 	}
 
-	result := Result{
-		SourceRows:     len(totals),
-		UserTotals:     len(userIDs),
-		CampaignTotals: len(campaignIDs),
-	}
+	result.UserTotals = len(userIDs)
+	result.CampaignTotals = len(campaignIDs)
 	if len(userIDs) == 0 && len(campaignIDs) == 0 {
 		return result, nil
 	}
 
 	tx, err := s.postgres.BeginTx(ctx, nil)
 	if err != nil {
-		return Result{}, fmt.Errorf("begin spend sync transaction: %w", err)
+		return result, fmt.Errorf("begin spend sync transaction: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -120,22 +125,22 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		// double-consume the same billed traffic.
 		execResult, err := tx.ExecContext(ctx, updateUsersCumulativeSpendSQL, pq.Array(userIDs), pq.Array(userAmounts))
 		if err != nil {
-			return Result{}, fmt.Errorf("bulk update users cumulative spend: %w", err)
+			return result, fmt.Errorf("bulk update users cumulative spend: %w", err)
 		}
 		result.UpdatedUsers, err = execResult.RowsAffected()
 		if err != nil {
-			return Result{}, fmt.Errorf("users cumulative spend rows affected: %w", err)
+			return result, fmt.Errorf("users cumulative spend rows affected: %w", err)
 		}
 	}
 
 	if len(campaignIDs) > 0 {
 		execResult, err := tx.ExecContext(ctx, updateCampaignsCumulativeSpendSQL, pq.Array(campaignIDs), pq.Array(campaignAmounts))
 		if err != nil {
-			return Result{}, fmt.Errorf("bulk update campaigns cumulative spend: %w", err)
+			return result, fmt.Errorf("bulk update campaigns cumulative spend: %w", err)
 		}
 		result.UpdatedCampaigns, err = execResult.RowsAffected()
 		if err != nil {
-			return Result{}, fmt.Errorf("campaigns cumulative spend rows affected: %w", err)
+			return result, fmt.Errorf("campaigns cumulative spend rows affected: %w", err)
 		}
 	}
 
@@ -143,15 +148,15 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	// This removes the old extra NO_BUDGET_CHECK_INTERVAL polling delay.
 	statusResult, err := tx.ExecContext(ctx, markNoBudgetCampaignsSQL)
 	if err != nil {
-		return Result{}, fmt.Errorf("mark no-budget campaigns: %w", err)
+		return result, fmt.Errorf("mark no-budget campaigns: %w", err)
 	}
 	result.StoppedCampaigns, err = statusResult.RowsAffected()
 	if err != nil {
-		return Result{}, fmt.Errorf("no-budget campaigns rows affected: %w", err)
+		return result, fmt.Errorf("no-budget campaigns rows affected: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return Result{}, fmt.Errorf("commit spend sync transaction: %w", err)
+		return result, fmt.Errorf("commit spend sync transaction: %w", err)
 	}
 	return result, nil
 }

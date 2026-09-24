@@ -205,6 +205,14 @@ func runPromoSpendLedgerCleanupTicker(ctx context.Context, repo *percenterbillin
 	}
 }
 
+func formatDurationSecondsExact(d time.Duration) string {
+	if d < 0 {
+		d = -d
+		return fmt.Sprintf("-%d.%09d", d/time.Second, d%time.Second)
+	}
+	return fmt.Sprintf("%d.%09d", d/time.Second, d%time.Second)
+}
+
 func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *spendsync.Service) {
 	interval := cfg.SpendSync.Interval
 	if interval <= 0 {
@@ -224,12 +232,18 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 		result, err := service.Sync(syncCtx)
 		duration := time.Since(startedAt)
 		if err != nil {
-			log.Printf("stats spend sync error after %s: %v", duration, err)
+			log.Printf(
+				"stats spend sync error: total_duration=%s clickhouse_query_seconds=%s error=%v",
+				duration,
+				formatDurationSecondsExact(result.ClickHouseQueryDuration),
+				err,
+			)
 			return
 		}
 		log.Printf(
-			"stats spend sync completed: duration=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d",
+			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d",
 			duration,
+			formatDurationSecondsExact(result.ClickHouseQueryDuration),
 			result.SourceRows,
 			result.UserTotals,
 			result.CampaignTotals,

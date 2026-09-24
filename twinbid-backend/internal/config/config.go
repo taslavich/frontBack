@@ -166,8 +166,8 @@ func Load(ctx context.Context) (*Config, error) {
 }
 
 type SpendSyncConfig struct {
-	Interval time.Duration `env:"STATS_SPEND_SYNC_INTERVAL" env-default:"10s"`
-	Timeout  time.Duration `env:"STATS_SPEND_SYNC_TIMEOUT" env-default:"15s"`
+	Interval time.Duration `env:"STATS_SPEND_SYNC_INTERVAL" env-default:"30s"`
+	Timeout  time.Duration `env:"STATS_SPEND_SYNC_TIMEOUT" env-default:"30s"`
 }
 
 type NotificationsConfig struct {
