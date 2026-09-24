@@ -149,7 +149,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
 	go runInvoiceExpiryTicker(ctx, topupSvc)
-	go runNoBudgetTicker(ctx, pg, cfg, campaignSvc)
+	go runNoBudgetNotificationTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
@@ -228,13 +228,14 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			return
 		}
 		log.Printf(
-			"stats spend sync completed: duration=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d",
+			"stats spend sync completed: duration=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d",
 			duration,
 			result.SourceRows,
 			result.UserTotals,
 			result.CampaignTotals,
 			result.UpdatedUsers,
 			result.UpdatedCampaigns,
+			result.StoppedCampaigns,
 		)
 	}
 
@@ -252,52 +253,61 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 	}
 }
 
-func runNoBudgetTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campaignSvc *campaigns.Service) {
-	t := time.NewTicker(cfg.Notifications.NoBudgetCheckInterval)
+func runNoBudgetNotificationTicker(ctx context.Context, pg *sql.DB, cfg config.Config, campaignSvc *campaigns.Service) {
+	interval := cfg.Notifications.NoBudgetNotificationInterval
+	if interval <= 0 {
+		log.Printf("no-budget notification ticker disabled: invalid interval %s", interval)
+		return
+	}
+
+	run := func() {
+		rows, err := pg.QueryContext(ctx, `
+			SELECT c.campaign_id
+			FROM campaigns c
+			WHERE c.status = 'no_budget'
+			  AND c.no_budget_notified = false
+		`)
+		if err != nil {
+			log.Printf("no-budget notification query error: %v", err)
+			return
+		}
+
+		campaignIDs := make([]string, 0)
+		for rows.Next() {
+			var campaignID string
+			if err := rows.Scan(&campaignID); err != nil {
+				log.Printf("no-budget notification scan error: %v", err)
+				continue
+			}
+			campaignIDs = append(campaignIDs, campaignID)
+		}
+		rowsErr := rows.Err()
+		_ = rows.Close()
+		if rowsErr != nil {
+			log.Printf("no-budget notification rows iteration error: %v", rowsErr)
+			return
+		}
+
+		// Never hold a PostgreSQL result set/connection while notification or SMTP
+		// I/O is running. Delivery is deliberately outside the critical status path.
+		for _, campaignID := range campaignIDs {
+			if err := campaignSvc.NotifyNoBudgetIfNeeded(ctx, campaignID); err != nil {
+				log.Printf("no-budget notification error campaign_id=%s: %v", campaignID, err)
+			}
+		}
+	}
+
+	// Notification delivery is intentionally decoupled from the critical status path.
+	// Run once at startup so pending notifications are eventually delivered after restarts.
+	run()
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			rows, err := pg.QueryContext(ctx, `
-				SELECT c.user_id, c.campaign_id
-				FROM campaigns c
-				WHERE c.goal_total_dollars > 0
-				  AND c.status = 'active'
-				  AND (c.goal_total_dollars - c.cum_done_dollars) <
-					  CASE
-						  WHEN LOWER(TRIM(c.pricing_model)) = 'cpm'
-							  THEN c.base_price / 1000
-						  WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
-							   AND LOWER(TRIM(c.format_type)) = 'popunder'
-							  THEN c.base_price / 1000
-						  WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
-							  THEN c.base_price
-						  ELSE NULL
-					  END
-				  AND c.no_budget_notified = false
-			`)
-			if err != nil {
-				log.Printf("no budget ticker query error: %v", err)
-				continue
-			}
-			for rows.Next() {
-				var userID, campaignID string
-				if err := rows.Scan(&userID, &campaignID); err != nil {
-					log.Printf("no budget ticker scan error: %v", err)
-					continue
-				}
-				if _, err := campaignSvc.Patch(ctx, campaignID, campaigns.PatchCampaignRequest{Status: strPtr("no_budget"), NoBudgetNotified: booleanPtr(true)}); err != nil {
-					log.Printf("no budget ticker patch status error: %v", err)
-					continue
-				}
-
-			}
-			if err := rows.Err(); err != nil {
-				log.Printf("no budget ticker rows iteration error: %v", err)
-			}
-			_ = rows.Close()
+			run()
 		}
 	}
 }

@@ -293,6 +293,36 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 	return campaign, nil
 }
 
+// NotifyNoBudgetIfNeeded delivers the user-facing notification for a campaign
+// whose status has already been moved to no_budget by the spend-sync transaction.
+// Keeping this outside the critical spend/status path means SMTP or notification
+// latency can never delay campaign deactivation.
+func (s *Service) NotifyNoBudgetIfNeeded(ctx context.Context, campaignID string) error {
+	claimed := false
+	campaign, err := s.repo.UpdateLocked(ctx, campaignID, func(current *models.Campaign) error {
+		if normalizedString(current.Status) != "no_budget" || current.NoBudgetNotified {
+			return nil
+		}
+		// Claim delivery before network I/O. Notification/email is best effort and
+		// must never re-enter the critical no-budget status path or create duplicate
+		// notifications on repeated worker ticks.
+		current.NoBudgetNotified = true
+		claimed = true
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("claim no-budget notification: %w", err)
+	}
+	if !claimed {
+		return nil
+	}
+
+	if err := s.notifyCampaignStatusChangeIfNeeded(ctx, campaign, "active", "no_budget"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) notifyCampaignStatusChangeIfNeeded(ctx context.Context, campaign models.Campaign, oldStatus, newStatus string) error {
 	if !((oldStatus == "moderation" && newStatus == "waiting") ||
 		(oldStatus == "waiting" && newStatus == "active") ||

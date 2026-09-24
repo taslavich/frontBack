@@ -51,3 +51,31 @@ func TestUserSpendSyncDoesNotMutatePromoState(t *testing.T) {
 		t.Fatalf("spend sync query no longer updates cumulative spend: %s", updateUsersCumulativeSpendSQL)
 	}
 }
+
+func TestNoBudgetTransitionRunsInSpendSync(t *testing.T) {
+	query := strings.ToLower(markNoBudgetCampaignsSQL)
+	for _, want := range []string{
+		"update campaigns",
+		"status = 'no_budget'",
+		"status = 'active'",
+		"goal_total_dollars - c.cum_done_dollars",
+		"base_price / 1000",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("no-budget transition query missing %q: %s", want, markNoBudgetCampaignsSQL)
+		}
+	}
+	if strings.Contains(query, "no_budget_notified = true") {
+		t.Fatalf("critical spend-sync path must not wait for notification delivery: %s", markNoBudgetCampaignsSQL)
+	}
+}
+
+func TestCampaignSpendUpdateAndNoBudgetTransitionAreSeparateStatements(t *testing.T) {
+	update := strings.ToLower(updateCampaignsCumulativeSpendSQL)
+	if !strings.Contains(update, "set cum_done_dollars") {
+		t.Fatalf("campaign spend update no longer writes cum_done_dollars: %s", updateCampaignsCumulativeSpendSQL)
+	}
+	if strings.Contains(update, "status = 'no_budget'") {
+		t.Fatalf("campaign status should be evaluated after all cumulative spend rows are updated: %s", updateCampaignsCumulativeSpendSQL)
+	}
+}

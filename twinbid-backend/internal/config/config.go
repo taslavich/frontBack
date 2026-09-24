@@ -166,12 +166,15 @@ func Load(ctx context.Context) (*Config, error) {
 }
 
 type SpendSyncConfig struct {
-	Interval time.Duration `env:"STATS_SPEND_SYNC_INTERVAL" env-default:"1m"`
-	Timeout  time.Duration `env:"STATS_SPEND_SYNC_TIMEOUT" env-default:"50s"`
+	Interval time.Duration `env:"STATS_SPEND_SYNC_INTERVAL" env-default:"10s"`
+	Timeout  time.Duration `env:"STATS_SPEND_SYNC_TIMEOUT" env-default:"15s"`
 }
 
 type NotificationsConfig struct {
-	LowBalanceCheckInterval        time.Duration `env:"LOW_BALANCE_CHECK_INTERVAL" env-default:"10m"`
-	NoBudgetCheckInterval          time.Duration `env:"NO_BUDGET_CHECK_INTERVAL" env-default:"10m"`
+	LowBalanceCheckInterval time.Duration `env:"LOW_BALANCE_CHECK_INTERVAL" env-default:"10m"`
+	// NO_BUDGET_CHECK_INTERVAL is retained for backward-compatible configuration,
+	// but it now controls notification delivery only. The no_budget status itself
+	// is applied synchronously by the spend-sync transaction.
+	NoBudgetNotificationInterval   time.Duration `env:"NO_BUDGET_CHECK_INTERVAL" env-default:"1m"`
 	CampaignCompletedCheckInterval time.Duration `env:"CAMPAIGN_COMPLETED_CHECK_INTERVAL" env-default:"10m"`
 }

@@ -31,6 +31,7 @@ type Result struct {
 	CampaignTotals   int
 	UpdatedUsers     int64
 	UpdatedCampaigns int64
+	StoppedCampaigns int64
 }
 
 const updateUsersCumulativeSpendSQL = `
@@ -41,6 +42,39 @@ UPDATE users AS u
 SET cum_done_dollars = incoming.cum_done_dollars
 FROM incoming
 WHERE u.id = incoming.id`
+
+const updateCampaignsCumulativeSpendSQL = `
+WITH incoming(id, cum_done_dollars) AS (
+    SELECT * FROM unnest($1::uuid[], $2::numeric[])
+)
+UPDATE campaigns AS c
+SET cum_done_dollars = incoming.cum_done_dollars
+FROM incoming
+WHERE c.campaign_id = incoming.id`
+
+// markNoBudgetCampaignsSQL intentionally runs in the same PostgreSQL transaction
+// as the ClickHouse -> PostgreSQL cumulative-spend reconciliation. Once fresh spend
+// has been written to campaigns.cum_done_dollars, there is no second polling window
+// before the campaign status becomes no_budget.
+//
+// no_budget_notified is deliberately left false here. Notifications are handled by
+// a separate non-critical worker so SMTP/network stalls can never delay the status.
+const markNoBudgetCampaignsSQL = `
+UPDATE campaigns AS c
+SET status = 'no_budget', updated_at = NOW()
+WHERE c.goal_total_dollars > 0
+  AND c.status = 'active'
+  AND (c.goal_total_dollars - c.cum_done_dollars) <
+      CASE
+          WHEN LOWER(TRIM(c.pricing_model)) = 'cpm'
+              THEN c.base_price / 1000
+          WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
+               AND LOWER(TRIM(c.format_type)) = 'popunder'
+              THEN c.base_price / 1000
+          WHEN LOWER(TRIM(c.pricing_model)) = 'cpc'
+              THEN c.base_price
+          ELSE NULL
+      END`
 
 func NewService(postgres *sql.DB, source source) *Service {
 	return &Service{postgres: postgres, source: source}
@@ -95,15 +129,7 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	}
 
 	if len(campaignIDs) > 0 {
-		const updateCampaigns = `
-WITH incoming(id, cum_done_dollars) AS (
-    SELECT * FROM unnest($1::uuid[], $2::numeric[])
-)
-UPDATE campaigns AS c
-SET cum_done_dollars = incoming.cum_done_dollars
-FROM incoming
-WHERE c.campaign_id = incoming.id`
-		execResult, err := tx.ExecContext(ctx, updateCampaigns, pq.Array(campaignIDs), pq.Array(campaignAmounts))
+		execResult, err := tx.ExecContext(ctx, updateCampaignsCumulativeSpendSQL, pq.Array(campaignIDs), pq.Array(campaignAmounts))
 		if err != nil {
 			return Result{}, fmt.Errorf("bulk update campaigns cumulative spend: %w", err)
 		}
@@ -111,6 +137,17 @@ WHERE c.campaign_id = incoming.id`
 		if err != nil {
 			return Result{}, fmt.Errorf("campaigns cumulative spend rows affected: %w", err)
 		}
+	}
+
+	// Status transition is part of the same transaction as the spend update.
+	// This removes the old extra NO_BUDGET_CHECK_INTERVAL polling delay.
+	statusResult, err := tx.ExecContext(ctx, markNoBudgetCampaignsSQL)
+	if err != nil {
+		return Result{}, fmt.Errorf("mark no-budget campaigns: %w", err)
+	}
+	result.StoppedCampaigns, err = statusResult.RowsAffected()
+	if err != nil {
+		return Result{}, fmt.Errorf("no-budget campaigns rows affected: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
