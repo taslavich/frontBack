@@ -28,19 +28,24 @@ func (r *Repository) CreateUser(
 	partnerID string,
 	partner *string,
 ) (models.User, error) {
+	advertiserAPIToken, err := generateAdvertiserAPIToken()
+	if err != nil {
+		return models.User{}, err
+	}
+
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO users (
 			login, mail, name, telegram, manager_telegram, password, verified, utm_source,
-			partner_id, partner
+			partner_id, partner, advertiser_api_token
 		)
-		VALUES ($1, $1, $2, $3, $4, $5, false, $6, $7, $8)
+		VALUES ($1, $1, $2, $3, $4, $5, false, $6, $7, $8, $9)
 		RETURNING id, login, mail, name, telegram, manager_telegram,
 			goal_total_dollars, cum_done_dollars,
 			(goal_total_dollars - cum_done_dollars) AS balance, timezone,
 			email_notifications, campaign_status_notifications, low_balance_notifications,
 			campaign_balance_notifications, balance_treshold, low_balance_notified,
 			partner_id, partner, verified
-	`, email, fullName, telegram, managerTelegram, password, utmSource, partnerID, partner)
+	`, email, fullName, telegram, managerTelegram, password, utmSource, partnerID, partner, advertiserAPIToken)
 	u, err := scanUser(row)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {

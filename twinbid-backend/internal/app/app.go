@@ -140,6 +140,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret, cfg.Bot.AdminUserID)
 
 	statsHandler := stats.NewHandler(statsSvc)
+	advertiserStatsHandler := stats.NewAdvertiserAPIHandler(pg, statsSvc)
 	percenterBillingRepo := percenterbilling.NewRepository(pg)
 	percenterBillingHandler := percenterbilling.NewHandler(percenterBillingRepo, cfg.Bot.InternalSecret)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
@@ -152,7 +153,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
-	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, percenterBillingHandler)
+	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler, percenterBillingHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
 }
 
@@ -486,11 +487,15 @@ func buildRouter(
 	topupHandler *topups.Handler,
 	notificationHandler *notifications.Handler,
 	statsHandler *stats.Handler,
+	advertiserStatsHandler *stats.AdvertiserAPIHandler,
 	percenterBillingHandler *percenterbilling.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	// The public advertiser API intentionally carries its API token in the URL.
+	// Redact it before the standard request logger sees RequestURI.
+	r.Use(stats.RedactAdvertiserTokenQuery)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(cors)
@@ -501,6 +506,7 @@ func buildRouter(
 	r.Post("/api/internal/percenter/promo-spend", percenterBillingHandler.Apply)
 	r.Post("/api/webhooks/passimpay", topupHandler.PassimPayWebhook)
 	r.Post("/api/webhooks/cryptomus", topupHandler.CryptomusWebhook)
+	r.Get("/api/advertiser/stats", advertiserStatsHandler.Query)
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)

@@ -51,6 +51,8 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			partner_id VARCHAR(64),
 			partner TEXT,
 			partner_withdrawn_dollars DECIMAL NOT NULL DEFAULT 0,
+			advertiser_api_token TEXT DEFAULT ('adv_' || encode(gen_random_bytes(32), 'hex')),
+			advertiser_api_last_request_at TIMESTAMP WITH TIME ZONE,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
@@ -72,6 +74,9 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64);`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS partner TEXT;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_withdrawn_dollars DECIMAL NOT NULL DEFAULT 0;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS advertiser_api_token TEXT DEFAULT ('adv_' || encode(gen_random_bytes(32), 'hex'));`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS advertiser_api_last_request_at TIMESTAMP WITH TIME ZONE;`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_advertiser_api_token_unique ON users(advertiser_api_token) WHERE advertiser_api_token IS NOT NULL;`,
 		`UPDATE users
 		 SET partner_id = 'TB' || substr(
 			 upper(translate(encode(gen_random_bytes(8), 'base64'), '+/=', 'XYZ')),
