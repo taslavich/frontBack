@@ -251,13 +251,20 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 				imageURL = *cr.ImageURL
 			}
 
+			videoFormat := ""
+			if cr.VideoFormat != nil {
+				videoFormat = *cr.VideoFormat
+			}
+
 			creativesPayload = append(creativesPayload, bot.CreativePayload{
-				CreativeName: cr.CreativeName,
-				ADM:          cr.ADM,
-				Macros:       macros,
-				ImageURL:     imageURL,
-				Title:        title,
-				Description:  description,
+				CreativeName:  cr.CreativeName,
+				ADM:           cr.ADM,
+				Macros:        macros,
+				ImageURL:      imageURL,
+				Title:         title,
+				Description:   description,
+				VideoFormat:   videoFormat,
+				VideoMetadata: cr.VideoMetadata,
 			})
 		}
 		bannerSize := ""

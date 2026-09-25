@@ -61,13 +61,13 @@ func (r *Repository) Create(ctx context.Context, userID string, creative models.
 	defer tx.Rollback()
 
 	row := tx.QueryRowContext(ctx, `
-		INSERT INTO creatives (id, campaign_id, creative_name, adm, banner_type, trackers_macros, w, h, title, description)
-		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+		INSERT INTO creatives (id, campaign_id, creative_name, adm, banner_type, trackers_macros, w, h, title, description, video_format, video_metadata)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 		FROM campaigns c
-		WHERE c.campaign_id=$2 AND c.user_id=$11
+		WHERE c.campaign_id=$2 AND c.user_id=$13
 		RETURNING id
 	`, creative.ID, creative.CampaignID, creative.CreativeName, creative.ADM, creative.BannerType,
-		jsonArg(creative.TrackersMacros), creative.W, creative.H, creative.Title, creative.Description, userID)
+		jsonArg(creative.TrackersMacros), creative.W, creative.H, creative.Title, creative.Description, creative.VideoFormat, videoMetadataArg(creative.VideoMetadata), userID)
 	if err := row.Scan(&creative.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.Creative{}, httpx.NotFound("campaign not found")
@@ -137,13 +137,13 @@ func (r *Repository) Update(ctx context.Context, userID string, creative models.
 
 	row := tx.QueryRowContext(ctx, `
 		UPDATE creatives SET creative_name=$3, adm=$4, banner_type=$5, trackers_macros=$6,
-			w=$7, h=$8, title=$9, description=$10, updated_at=NOW()
+			w=$7, h=$8, title=$9, description=$10, video_format=$11, video_metadata=$12, updated_at=NOW()
 		WHERE id=$2 AND EXISTS (
 			SELECT 1 FROM campaigns c WHERE c.campaign_id=creatives.campaign_id AND c.user_id=$1
 		)
 		RETURNING id
 	`, userID, creative.ID, creative.CreativeName, creative.ADM, creative.BannerType,
-		jsonArg(creative.TrackersMacros), creative.W, creative.H, creative.Title, creative.Description)
+		jsonArg(creative.TrackersMacros), creative.W, creative.H, creative.Title, creative.Description, creative.VideoFormat, videoMetadataArg(creative.VideoMetadata))
 	if err := row.Scan(&lockedID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.Creative{}, nil, httpx.NotFound("creative not found")
@@ -288,7 +288,7 @@ func getBoundImageTx(ctx context.Context, tx *sql.Tx, creativeID string) (*model
 
 const baseCreativeSelect = `
 SELECT cr.id, cr.campaign_id, cr.creative_name, cr.adm, cr.banner_type, cr.trackers_macros,
-	cr.w, cr.h, cr.title, cr.description,
+	cr.w, cr.h, cr.title, cr.description, cr.video_format, cr.video_metadata,
 	ci.id, ci.web_url, ci.original_name, ci.s3_key, ci.mime_type, ci.file_format,
 	c.format_type
 FROM creatives cr
@@ -300,17 +300,27 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanCreative(s scanner) (models.Creative, error) {
 	var creative models.Creative
-	var raw []byte
-	var bannerType, title, description sql.NullString
+	var raw, videoMetadataRaw []byte
+	var bannerType, title, description, videoFormat sql.NullString
 	var imageID, imageURL, imageName, s3Key, imageMimeType, imageFormat sql.NullString
 	var w, h sql.NullInt64
 	err := s.Scan(&creative.ID, &creative.CampaignID, &creative.CreativeName, &creative.ADM, &bannerType,
-		&raw, &w, &h, &title, &description, &imageID, &imageURL, &imageName, &s3Key,
+		&raw, &w, &h, &title, &description, &videoFormat, &videoMetadataRaw, &imageID, &imageURL, &imageName, &s3Key,
 		&imageMimeType, &imageFormat, &creative.FormatType)
 	if err != nil {
 		return models.Creative{}, err
 	}
 	creative.TrackersMacros, err = db.UnmarshalMacroMap(raw)
+	if err != nil {
+		return models.Creative{}, err
+	}
+	if videoFormat.Valid {
+		value := models.NormalizeVideoFormat(videoFormat.String)
+		if value != "" {
+			creative.VideoFormat = &value
+		}
+	}
+	creative.VideoMetadata, err = db.UnmarshalVideoCreativeMetadata(videoMetadataRaw)
 	if err != nil {
 		return models.Creative{}, err
 	}
@@ -394,4 +404,11 @@ func imageFromCreative(creative models.Creative) *models.CreativeImage {
 func jsonArg(value any) any {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func videoMetadataArg(v *models.VideoCreativeMetadata) any {
+	if v == nil {
+		return "{}"
+	}
+	return jsonArg(v)
 }

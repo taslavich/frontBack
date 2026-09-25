@@ -81,24 +81,26 @@ type Campaign struct {
 }
 
 type Creative struct {
-	ID             string   `json:"id"`
-	CampaignID     string   `json:"campaign_id"`
-	CreativeName   string   `json:"creative_name"`
-	ADM            string   `json:"adm"`
-	BannerType     *string  `json:"banner_type,omitempty"`
-	TrackersMacros MacroMap `json:"trackers_macros"`
-	Macros         MacroMap `json:"macros"`
-	W              *int     `json:"w,omitempty"`
-	H              *int     `json:"h,omitempty"`
-	Title          *string  `json:"title,omitempty"`
-	Description    *string  `json:"description,omitempty"`
-	ImageID        *string  `json:"image_id,omitempty"`
-	ImageURL       *string  `json:"image_url,omitempty"`
-	ImageName      *string  `json:"image_name,omitempty"`
-	S3Key          *string  `json:"-"`
-	ImageMimeType  *string  `json:"-"`
-	ImageFormat    *string  `json:"-"`
-	FormatType     string   `json:"-"`
+	ID             string                 `json:"id"`
+	CampaignID     string                 `json:"campaign_id"`
+	CreativeName   string                 `json:"creative_name"`
+	ADM            string                 `json:"adm"`
+	BannerType     *string                `json:"banner_type,omitempty"`
+	TrackersMacros MacroMap               `json:"trackers_macros"`
+	Macros         MacroMap               `json:"macros"`
+	W              *int                   `json:"w,omitempty"`
+	H              *int                   `json:"h,omitempty"`
+	Title          *string                `json:"title,omitempty"`
+	Description    *string                `json:"description,omitempty"`
+	ImageID        *string                `json:"image_id,omitempty"`
+	ImageURL       *string                `json:"image_url,omitempty"`
+	ImageName      *string                `json:"image_name,omitempty"`
+	S3Key          *string                `json:"-"`
+	ImageMimeType  *string                `json:"-"`
+	ImageFormat    *string                `json:"-"`
+	FormatType     string                 `json:"-"`
+	VideoFormat    *string                `json:"video_format,omitempty"`
+	VideoMetadata  *VideoCreativeMetadata `json:"video_metadata,omitempty"`
 }
 
 type CreativeImage struct {

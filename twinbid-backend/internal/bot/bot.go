@@ -11,6 +11,8 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
+
+	"twinbid-backend/internal/models"
 )
 
 type BotClient struct {
@@ -34,18 +36,20 @@ type FilePayload struct {
 }
 
 type CreativePayload struct {
-	CreativeName string       `json:"creative_name"`
-	ADM          string       `json:"adm"`
-	Macros       string       `json:"macros,omitempty"`
-	ImageFile    *FilePayload `json:"-"`
-	ImageURL     string       `json:"image_url,omitempty"`
-	Title        string       `json:"title,omitempty"`
-	Description  string       `json:"description,omitempty"`
+	CreativeName  string                        `json:"creative_name"`
+	ADM           string                        `json:"adm"`
+	Macros        string                        `json:"macros,omitempty"`
+	ImageFile     *FilePayload                  `json:"-"`
+	ImageURL      string                        `json:"image_url,omitempty"`
+	Title         string                        `json:"title,omitempty"`
+	Description   string                        `json:"description,omitempty"`
+	VideoFormat   string                        `json:"video_format,omitempty"`
+	VideoMetadata *models.VideoCreativeMetadata `json:"video_metadata,omitempty"`
 }
 
 type CampaignModerationRequest struct {
 	CampaignID   string            `json:"campaign_id"`
-	FormatType   string            `json:"format_type"`  // popunder / banner / native / push
+	FormatType   string            `json:"format_type"`  // popunder / banner / native / push / video
 	TrafficType  string            `json:"traffic_type"` // mainstream / adult / mixed и т.п.
 	CampaignName string            `json:"campaign_name"`
 	BannerSize   string            `json:"banner_size,omitempty"` // нужно для banner, например 300x250

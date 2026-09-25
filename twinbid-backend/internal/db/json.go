@@ -101,3 +101,14 @@ func UnmarshalIntervals(raw []byte) ([]models.ScheduleInterval, error) {
 	}
 	return out, nil
 }
+
+func UnmarshalVideoCreativeMetadata(raw []byte) (*models.VideoCreativeMetadata, error) {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return nil, nil
+	}
+	var out models.VideoCreativeMetadata
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("video creative metadata json: %w", err)
+	}
+	return models.NormalizeVideoCreativeMetadata(&out), nil
+}

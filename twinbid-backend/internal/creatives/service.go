@@ -2,6 +2,7 @@ package creatives
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -123,6 +124,8 @@ func (s *Service) Create(ctx context.Context, userID, campaignID string, req Cre
 		H:              req.H,
 		Title:          req.Title,
 		Description:    req.Description,
+		VideoFormat:    normalizeVideoFormat(req.VideoFormat),
+		VideoMetadata:  models.NormalizeVideoCreativeMetadata(req.VideoMetadata),
 		ImageID:        imageID,
 		FormatType:     campaign.FormatType,
 	}
@@ -161,6 +164,12 @@ func (s *Service) Patch(ctx context.Context, userID, creativeID string, req Patc
 	}
 	if req.Description != nil {
 		current.Description = req.Description
+	}
+	if req.VideoFormat.Set {
+		current.VideoFormat = normalizeVideoFormat(req.VideoFormat.Value)
+	}
+	if req.VideoMetadata.Set {
+		current.VideoMetadata = models.NormalizeVideoCreativeMetadata(req.VideoMetadata.Value)
 	}
 
 	imageChange := req.ImageID
@@ -268,6 +277,18 @@ func (s *Service) mediaURL(imageID string) string {
 	return s.publicAPIBaseURL + "/api/media/" + imageID
 }
 
+func normalizeVideoFormat(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	normalized := models.NormalizeVideoFormat(*value)
+	if normalized == "" {
+		trimmed := strings.TrimSpace(*value)
+		return &trimmed
+	}
+	return &normalized
+}
+
 func validateCreative(creative models.Creative) error {
 	if strings.TrimSpace(creative.CreativeName) == "" {
 		return httpx.BadRequest("creative_name is required")
@@ -318,6 +339,22 @@ func validateCreative(creative models.Creative) error {
 		if creative.Description == nil || strings.TrimSpace(*creative.Description) == "" {
 			return httpx.BadRequest("description is required")
 		}
+	case "video":
+		if creative.BannerType != nil {
+			return httpx.BadRequest("banner_type is only allowed for banner creatives")
+		}
+		if creative.W == nil || creative.H == nil {
+			return httpx.BadRequest("w and h are required for video creatives")
+		}
+		if creative.VideoFormat == nil || models.NormalizeVideoFormat(*creative.VideoFormat) == "" {
+			return httpx.BadRequest("video_format must be instream, outstream or video_popup")
+		}
+		if !validVASTADM(creative.ADM) {
+			return httpx.BadRequest("adm must contain valid VAST XML for video creatives")
+		}
+		if err := validateVideoMetadata(creative.VideoMetadata); err != nil {
+			return err
+		}
 	case "popunder":
 		if creative.BannerType != nil {
 			return httpx.BadRequest("banner_type is only allowed for banner creatives")
@@ -331,11 +368,86 @@ func validateCreative(creative models.Creative) error {
 	return nil
 }
 
-func validateCreativeMediaFormat(campaignFormat, mimeType string) error {
-	if strings.EqualFold(strings.TrimSpace(mimeType), "video/mp4") && campaignFormat != "banner" {
-		return httpx.BadRequest("MP4 is only allowed for banner creatives")
+func validVASTADM(adm string) bool {
+	decoder := xml.NewDecoder(strings.NewReader(strings.TrimSpace(adm)))
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		if start, ok := tok.(xml.StartElement); ok {
+			return strings.EqualFold(start.Name.Local, "VAST")
+		}
+	}
+}
+
+func validateVideoMetadata(metadata *models.VideoCreativeMetadata) error {
+	if metadata == nil {
+		return httpx.BadRequest("video_metadata is required for video creatives")
+	}
+	if len(metadata.Mimes) == 0 {
+		return httpx.BadRequest("video_metadata.mimes is required for video creatives")
+	}
+	for _, mimeType := range metadata.Mimes {
+		if !allowedVideoMetadataMIME(mimeType) {
+			return httpx.BadRequest("video_metadata.mimes must contain VIDEO/VPAID-compatible MIME types")
+		}
+	}
+	if metadata.Duration < 0 {
+		return httpx.BadRequest("video_metadata.duration cannot be negative")
+	}
+	if metadata.Bitrate < 0 {
+		return httpx.BadRequest("video_metadata.bitrate cannot be negative")
+	}
+	if metadata.Linearity != 0 && metadata.Linearity != 1 && metadata.Linearity != 2 {
+		return httpx.BadRequest("video_metadata.linearity must be 1 or 2 when set")
+	}
+	for _, protocol := range metadata.Protocols {
+		if protocol <= 0 {
+			return httpx.BadRequest("video_metadata.protocols values must be greater than zero")
+		}
+	}
+	for _, api := range metadata.API {
+		if api <= 0 {
+			return httpx.BadRequest("video_metadata.api values must be greater than zero")
+		}
+	}
+	for _, attr := range metadata.Attributes {
+		if attr <= 0 {
+			return httpx.BadRequest("video_metadata.battr values must be greater than zero")
+		}
 	}
 	return nil
+}
+
+func allowedVideoMetadataMIME(mimeType string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	return strings.HasPrefix(mimeType, "video/") || mimeType == "application/javascript" || mimeType == "text/javascript"
+}
+
+func validateCreativeMediaFormat(campaignFormat, mimeType string) error {
+	format := strings.ToLower(strings.TrimSpace(campaignFormat))
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	isVideo := mimeType == "video/mp4"
+	isImage := mimeType == "image/jpeg" || mimeType == "image/jpg" || mimeType == "image/png" || mimeType == "image/gif"
+
+	switch format {
+	case "banner":
+		if isVideo || isImage {
+			return nil
+		}
+	case "video":
+		if isVideo {
+			return nil
+		}
+	case "native", "push":
+		if isImage {
+			return nil
+		}
+	case "popunder":
+		return httpx.BadRequest("popunder creatives do not use uploaded media")
+	}
+	return httpx.BadRequest("creative media type is not allowed for campaign format")
 }
 
 func inspectCreativeMedia(file multipart.File, declaredMimeType string) (size int64, mimeType, extension string, err error) {

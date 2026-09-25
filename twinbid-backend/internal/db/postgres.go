@@ -183,6 +183,8 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			file_format TEXT,
 			title TEXT,
 			description TEXT,
+			video_format TEXT,
+			video_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);`,
@@ -226,6 +228,33 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		 FROM campaigns c
 		 WHERE c.campaign_id=cr.campaign_id AND c.format_type<>'banner' AND cr.banner_type IS NOT NULL;`,
 		`ALTER TABLE creatives ADD COLUMN IF NOT EXISTS trackers_macros JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+		`ALTER TABLE creatives ADD COLUMN IF NOT EXISTS video_format TEXT;`,
+		`UPDATE creatives SET video_format='outstream' WHERE video_format IN ('outstream_standard','outstream_slider');`,
+		`UPDATE creatives SET video_format=NULL WHERE video_format IS NOT NULL AND video_format NOT IN ('instream','outstream','video_popup');`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.table_constraints
+				WHERE table_schema='public' AND table_name='creatives'
+				  AND constraint_name='check_creatives_video_format'
+			) THEN
+				ALTER TABLE creatives ADD CONSTRAINT check_creatives_video_format
+				CHECK (video_format IS NULL OR video_format IN ('instream','outstream','video_popup'));
+			END IF;
+		END $$;`,
+		`ALTER TABLE creatives ADD COLUMN IF NOT EXISTS video_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+		`UPDATE creatives SET video_metadata='{}'::jsonb WHERE video_metadata IS NULL;`,
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.table_constraints
+				WHERE table_schema='public' AND table_name='creatives'
+				  AND constraint_name='check_creatives_video_metadata_object'
+			) THEN
+				ALTER TABLE creatives ADD CONSTRAINT check_creatives_video_metadata_object
+				CHECK (jsonb_typeof(video_metadata) = 'object');
+			END IF;
+		END $$;`,
 		`WITH normalized AS (
 			SELECT c.id,
 				COALESCE((

@@ -12,6 +12,7 @@ var trafficFormatValues = map[string]string{
 	"native":   "NAT",
 	"popunder": "POP",
 	"push":     "IPP",
+	"video":    "VID",
 }
 
 var trafficTypeValues = map[string][]string{

@@ -107,3 +107,16 @@ func TestBuildTrafficPlanRejectsMissingRequiredEnums(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestBuildTrafficPlanSupportsVideoFormat(t *testing.T) {
+	plan, err := buildCalculatorPlan(TrafficSegmentRequest{
+		FormatType:  "video",
+		TrafficType: "mainstream",
+	}, "traffic_volume_hourly")
+	if err != nil {
+		t.Fatalf("video traffic plan failed: %v", err)
+	}
+	if len(plan.Args) < 2 || plan.Args[0] != "VID" || plan.Args[1] != "MAINSTREAM" {
+		t.Fatalf("unexpected VIDEO args: %#v", plan.Args)
+	}
+}

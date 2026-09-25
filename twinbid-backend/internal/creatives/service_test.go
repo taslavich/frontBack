@@ -220,6 +220,12 @@ func TestValidateCreativeMediaFormat(t *testing.T) {
 	if err := validateCreativeMediaFormat("banner", "video/mp4"); err != nil {
 		t.Fatalf("banner MP4 was rejected: %v", err)
 	}
+	if err := validateCreativeMediaFormat("video", "video/mp4"); err != nil {
+		t.Fatalf("video MP4 was rejected: %v", err)
+	}
+	if err := validateCreativeMediaFormat("video", "image/png"); err == nil {
+		t.Fatal("video image must be rejected")
+	}
 	if err := validateCreativeMediaFormat("native", "video/mp4"); err == nil {
 		t.Fatal("native MP4 must be rejected")
 	}
@@ -279,5 +285,87 @@ func TestTrackerMacrosRejectUnknownKeysAndInvalidNames(t *testing.T) {
 	}
 	if err := validateTrackerMacros(models.MacroMap{"site_id": "bad&name"}); err == nil {
 		t.Fatal("invalid query parameter name must be rejected")
+	}
+}
+
+func TestValidateVideoCreative(t *testing.T) {
+	w, h := 1920, 1080
+	imageID := "11111111-1111-1111-1111-111111111111"
+	videoFormat := models.VideoFormatInstream
+	skippable := true
+	creative := models.Creative{
+		CreativeName: "video",
+		ADM:          `<?xml version="1.0"?><VAST version="3.0"><Ad id="x"></Ad></VAST>`,
+		FormatType:   "video",
+		W:            &w,
+		H:            &h,
+		ImageID:      &imageID,
+		VideoFormat:  &videoFormat,
+		VideoMetadata: &models.VideoCreativeMetadata{
+			Mimes: []string{"video/mp4"}, Duration: 20, Protocols: []int{2, 3, 5, 6},
+			API: []int{2}, Bitrate: 1200, Linearity: 1, Skippable: &skippable,
+		},
+	}
+	if err := validateCreative(creative); err != nil {
+		t.Fatalf("valid VIDEO creative rejected: %v", err)
+	}
+
+	creative.VideoMetadata = nil
+	if err := validateCreative(creative); err == nil {
+		t.Fatal("VIDEO creative without technical metadata must be rejected")
+	}
+	creative.VideoMetadata = &models.VideoCreativeMetadata{Mimes: []string{"video/mp4"}}
+
+	badFormat := "placement_5"
+	creative.VideoFormat = &badFormat
+	if err := validateCreative(creative); err == nil {
+		t.Fatal("unknown video_format must be rejected")
+	}
+}
+
+func TestPatchVideoFormatDistinguishesOmittedAndNull(t *testing.T) {
+	var omitted PatchCreativeRequest
+	if err := json.Unmarshal([]byte(`{}`), &omitted); err != nil {
+		t.Fatal(err)
+	}
+	if omitted.VideoFormat.Set {
+		t.Fatal("omitted video_format must not be marked as set")
+	}
+
+	var provided PatchCreativeRequest
+	if err := json.Unmarshal([]byte(`{"video_format":"outstream"}`), &provided); err != nil {
+		t.Fatal(err)
+	}
+	if !provided.VideoFormat.Set || provided.VideoFormat.Value == nil || *provided.VideoFormat.Value != "outstream" {
+		t.Fatalf("video_format was not decoded: %#v", provided.VideoFormat)
+	}
+}
+
+func TestPatchVideoMetadataDistinguishesOmittedAndNull(t *testing.T) {
+	var omitted PatchCreativeRequest
+	if err := json.Unmarshal([]byte(`{}`), &omitted); err != nil {
+		t.Fatal(err)
+	}
+	if omitted.VideoMetadata.Set {
+		t.Fatal("omitted video_metadata must not be marked as set")
+	}
+
+	var explicitNull PatchCreativeRequest
+	if err := json.Unmarshal([]byte(`{"video_metadata":null}`), &explicitNull); err != nil {
+		t.Fatal(err)
+	}
+	if !explicitNull.VideoMetadata.Set || explicitNull.VideoMetadata.Value != nil {
+		t.Fatalf("video_metadata:null was not decoded as explicit null: %#v", explicitNull.VideoMetadata)
+	}
+}
+
+func TestAllowedVideoMetadataMIMEIncludesRealSSPExamples(t *testing.T) {
+	for _, mimeType := range []string{"video/mp4", "video/webm", "application/javascript", "text/javascript"} {
+		if !allowedVideoMetadataMIME(mimeType) {
+			t.Fatalf("expected VIDEO MIME %q to be accepted", mimeType)
+		}
+	}
+	if allowedVideoMetadataMIME("image/png") {
+		t.Fatal("image/png must not be accepted as VIDEO creative MIME")
 	}
 }
