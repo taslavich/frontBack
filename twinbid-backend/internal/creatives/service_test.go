@@ -148,27 +148,31 @@ func TestInspectCreativeMediaPreservesJPEGAlias(t *testing.T) {
 	}
 }
 
-func TestInspectCreativeMediaAcceptsMP4(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "creative-*.mp4")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
+func TestInspectCreativeMediaAcceptsMP4RegardlessOfClientMIME(t *testing.T) {
+	for _, declared := range []string{"video/mp4", "application/octet-stream", ""} {
+		t.Run(declared, func(t *testing.T) {
+			file, err := os.CreateTemp(t.TempDir(), "creative-*.mp4")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
 
-	mp4Header := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0x00, 0x00, 0x00, 0x01, 'i', 's', 'o', 'm'}
-	if _, err := file.Write(mp4Header); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := file.Seek(0, 0); err != nil {
-		t.Fatal(err)
-	}
+			mp4Header := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0x00, 0x00, 0x00, 0x01, 'i', 's', 'o', 'm'}
+			if _, err := file.Write(mp4Header); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.Seek(0, 0); err != nil {
+				t.Fatal(err)
+			}
 
-	_, mimeType, extension, err := inspectCreativeMedia(file, "video/mp4")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mimeType != "video/mp4" || extension != "mp4" {
-		t.Fatalf("got mime=%q extension=%q", mimeType, extension)
+			_, mimeType, extension, err := inspectCreativeMedia(file, declared)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mimeType != "video/mp4" || extension != "mp4" {
+				t.Fatalf("got mime=%q extension=%q", mimeType, extension)
+			}
+		})
 	}
 }
 

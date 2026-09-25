@@ -238,7 +238,7 @@ func TestApplyPatchRequestNoBudgetReset(t *testing.T) {
 	}
 }
 
-func TestValidateCampaignRejectsVideoForAllCampaigns(t *testing.T) {
+func TestValidateCampaignAllowsVideoForCabinetAndRTB(t *testing.T) {
 	tests := []struct {
 		name string
 		rtb  bool
@@ -257,12 +257,8 @@ func TestValidateCampaignRejectsVideoForAllCampaigns(t *testing.T) {
 				campaign.DSPLink = &link
 			}
 
-			err := validateCampaign(campaign)
-			if err == nil {
-				t.Fatal("expected video campaign to be rejected")
-			}
-			if !strings.Contains(err.Error(), "invalid format_type") {
-				t.Fatalf("unexpected error: %v", err)
+			if err := validateCampaign(campaign); err != nil {
+				t.Fatalf("video campaign must be allowed: %v", err)
 			}
 		})
 	}

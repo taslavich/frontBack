@@ -583,7 +583,11 @@ func inspectCreativeMedia(file multipart.File, declaredMimeType string) (size in
 			return 0, "", "", httpx.BadRequest("image file exceeds 1 MiB")
 		}
 		mimeType, extension = "image/gif", "gif"
-	case declaredMimeType == "video/mp4" && hasMP4FileTypeBox(header):
+	case hasMP4FileTypeBox(header):
+		// MP4 identification is content-based. Multipart Content-Type is only a
+		// client hint and may legitimately be empty or application/octet-stream.
+		// ffprobe performs the authoritative container/video-stream validation
+		// before a VIDEO upload is persisted.
 		if size > maxCreativeVideoSize {
 			return 0, "", "", httpx.BadRequest("MP4 file exceeds 10 MiB")
 		}
