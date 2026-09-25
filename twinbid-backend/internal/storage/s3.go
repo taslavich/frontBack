@@ -85,6 +85,30 @@ func (s *S3Storage) Get(ctx context.Context, key string) (*Object, error) {
 	}, nil
 }
 
+func (s *S3Storage) GetRange(ctx context.Context, key string, start, end int64) (*Object, error) {
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("invalid object byte range %d-%d", start, end)
+	}
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", start, end)
+	output, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Range:  aws.String(rangeHeader),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Object{
+		ObjectMetadata: ObjectMetadata{
+			ContentType:   aws.ToString(output.ContentType),
+			ContentLength: aws.ToInt64(output.ContentLength),
+			ETag:          aws.ToString(output.ETag),
+			LastModified:  output.LastModified,
+		},
+		Body: output.Body,
+	}, nil
+}
+
 func (s *S3Storage) Head(ctx context.Context, key string) (ObjectMetadata, error) {
 	output, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),

@@ -295,15 +295,16 @@ func TestValidateVideoCreative(t *testing.T) {
 	skippable := true
 	creative := models.Creative{
 		CreativeName: "video",
-		ADM:          `<?xml version="1.0"?><VAST version="3.0"><Ad id="x"></Ad></VAST>`,
+		ADM:          `https://advertiser.example/landing?campaign=video`,
 		FormatType:   "video",
 		W:            &w,
 		H:            &h,
 		ImageID:      &imageID,
 		VideoFormat:  &videoFormat,
 		VideoMetadata: &models.VideoCreativeMetadata{
-			Mimes: []string{"video/mp4"}, Duration: 20, Protocols: []int{2, 3, 5, 6},
+			Mimes: []string{"video/mp4"}, Duration: 20, Protocols: []int{2, 3, 7},
 			API: []int{2}, Bitrate: 1200, Linearity: 1, Skippable: &skippable,
+			Width: 1920, Height: 1080, Codec: "h264", FileSize: 5 << 20,
 		},
 	}
 	if err := validateCreative(creative); err != nil {
@@ -314,12 +315,47 @@ func TestValidateVideoCreative(t *testing.T) {
 	if err := validateCreative(creative); err == nil {
 		t.Fatal("VIDEO creative without technical metadata must be rejected")
 	}
-	creative.VideoMetadata = &models.VideoCreativeMetadata{Mimes: []string{"video/mp4"}}
+	creative.VideoMetadata = &models.VideoCreativeMetadata{
+		Mimes: []string{"video/mp4"}, Duration: 20, Protocols: []int{2, 3, 7},
+		Linearity: 1, Width: 1920, Height: 1080, Codec: "h264", FileSize: 5 << 20,
+	}
 
 	badFormat := "placement_5"
 	creative.VideoFormat = &badFormat
 	if err := validateCreative(creative); err == nil {
 		t.Fatal("unknown video_format must be rejected")
+	}
+	creative.VideoFormat = &videoFormat
+	creative.ADM = `javascript:alert(1)`
+	if err := validateCreative(creative); err == nil {
+		t.Fatal("non-http advertiser URL must be rejected")
+	}
+}
+
+func TestParseFFProbeVideoMetadata(t *testing.T) {
+	raw := []byte(`{
+		"streams":[{"codec_name":"h264","width":1920,"height":1080,"bit_rate":"1250000","duration":"19.2"}],
+		"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"19.2","bit_rate":"1300000"}
+	}`)
+	got, err := parseFFProbeVideoMetadata(raw, 5<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Width != 1920 || got.Height != 1080 || got.Duration != 20 || got.Codec != "h264" || got.Bitrate != 1250 || got.FileSize != 5<<20 {
+		t.Fatalf("unexpected ffprobe metadata: %#v", got)
+	}
+	if len(got.Protocols) != 3 || got.Protocols[0] != 2 || got.Protocols[1] != 3 || got.Protocols[2] != 7 {
+		t.Fatalf("unexpected supported protocols: %#v", got.Protocols)
+	}
+}
+
+func TestParseFFProbeVideoMetadataRejectsWrongResolutionAndMissingStream(t *testing.T) {
+	wrongResolution := []byte(`{"streams":[{"codec_name":"h264","width":1280,"height":720,"duration":"10"}],"format":{}}`)
+	if _, err := parseFFProbeVideoMetadata(wrongResolution, 1<<20); err == nil {
+		t.Fatal("wrong VIDEO resolution must be rejected")
+	}
+	if _, err := parseFFProbeVideoMetadata([]byte(`{"streams":[],"format":{}}`), 1<<20); err == nil {
+		t.Fatal("MP4 without a video stream must be rejected")
 	}
 }
 
@@ -367,5 +403,29 @@ func TestAllowedVideoMetadataMIMEIncludesRealSSPExamples(t *testing.T) {
 	}
 	if allowedVideoMetadataMIME("image/png") {
 		t.Fatal("image/png must not be accepted as VIDEO creative MIME")
+	}
+}
+
+func TestParseSingleByteRange(t *testing.T) {
+	tests := []struct {
+		header    string
+		size      int64
+		wantStart int64
+		wantEnd   int64
+		wantOK    bool
+	}{
+		{"bytes=0-99", 1000, 0, 99, true},
+		{"bytes=100-", 1000, 100, 999, true},
+		{"bytes=-100", 1000, 900, 999, true},
+		{"bytes=900-2000", 1000, 900, 999, true},
+		{"bytes=1000-", 1000, 0, 0, false},
+		{"bytes=0-1,4-5", 1000, 0, 0, false},
+		{"items=0-10", 1000, 0, 0, false},
+	}
+	for _, tc := range tests {
+		start, end, ok := parseSingleByteRange(tc.header, tc.size)
+		if ok != tc.wantOK || (ok && (start != tc.wantStart || end != tc.wantEnd)) {
+			t.Fatalf("range %q size=%d got=(%d,%d,%v) want=(%d,%d,%v)", tc.header, tc.size, start, end, ok, tc.wantStart, tc.wantEnd, tc.wantOK)
+		}
 	}
 }

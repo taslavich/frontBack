@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"twinbid-backend/internal/db"
@@ -189,15 +190,15 @@ func (r *Repository) Delete(ctx context.Context, userID, creativeID string) (mod
 func (r *Repository) CreateImage(ctx context.Context, image models.CreativeImage) (models.CreativeImage, error) {
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO creative_images (
-			id, user_id, campaign_id, s3_key, web_url, original_name, mime_type, file_format, size_bytes
+			id, user_id, campaign_id, s3_key, web_url, original_name, mime_type, file_format, size_bytes, video_metadata
 		)
-		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
 		FROM campaigns c
 		WHERE c.campaign_id=$3 AND c.user_id=$2
 		RETURNING id, user_id, campaign_id, creative_id, s3_key, web_url, original_name,
-			mime_type, file_format, size_bytes, created_at, updated_at
+			mime_type, file_format, size_bytes, video_metadata, created_at, updated_at
 	`, image.ID, image.UserID, image.CampaignID, image.S3Key, image.WebURL, image.OriginalName,
-		image.MimeType, image.FileFormat, image.SizeBytes)
+		image.MimeType, image.FileFormat, image.SizeBytes, videoMetadataArg(image.VideoMetadata))
 	created, err := scanImage(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.CreativeImage{}, httpx.NotFound("campaign not found")
@@ -208,7 +209,7 @@ func (r *Repository) CreateImage(ctx context.Context, image models.CreativeImage
 func (r *Repository) ListImagesByCampaign(ctx context.Context, userID, campaignID string) ([]models.CreativeImage, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT ci.id, ci.user_id, ci.campaign_id, ci.creative_id, ci.s3_key, ci.web_url,
-			ci.original_name, ci.mime_type, ci.file_format, ci.size_bytes, ci.created_at, ci.updated_at
+			ci.original_name, ci.mime_type, ci.file_format, ci.size_bytes, ci.video_metadata, ci.created_at, ci.updated_at
 		FROM creative_images ci
 		JOIN campaigns c ON c.campaign_id=ci.campaign_id
 		WHERE ci.campaign_id=$2 AND c.user_id=$1
@@ -231,7 +232,7 @@ func (r *Repository) ListImagesByCampaign(ctx context.Context, userID, campaignI
 func (r *Repository) GetImage(ctx context.Context, imageID string) (models.CreativeImage, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, user_id, campaign_id, creative_id, s3_key, web_url, original_name,
-			mime_type, file_format, size_bytes, created_at, updated_at
+			mime_type, file_format, size_bytes, video_metadata, created_at, updated_at
 		FROM creative_images
 		WHERE id=$1
 	`, imageID)
@@ -271,7 +272,7 @@ func bindImageTx(ctx context.Context, tx *sql.Tx, userID, campaignID, creativeID
 func getBoundImageTx(ctx context.Context, tx *sql.Tx, creativeID string) (*models.CreativeImage, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, user_id, campaign_id, creative_id, s3_key, web_url, original_name,
-			mime_type, file_format, size_bytes, created_at, updated_at
+			mime_type, file_format, size_bytes, video_metadata, created_at, updated_at
 		FROM creative_images
 		WHERE creative_id=$1
 		FOR UPDATE
@@ -365,11 +366,17 @@ func scanCreative(s scanner) (models.Creative, error) {
 func scanImage(s scanner) (models.CreativeImage, error) {
 	var image models.CreativeImage
 	var campaignID, creativeID sql.NullString
+	var videoMetadataRaw []byte
 	err := s.Scan(&image.ID, &image.UserID, &campaignID, &creativeID, &image.S3Key,
 		&image.WebURL, &image.OriginalName, &image.MimeType, &image.FileFormat, &image.SizeBytes,
-		&image.CreatedAt, &image.UpdatedAt)
+		&videoMetadataRaw, &image.CreatedAt, &image.UpdatedAt)
 	if err != nil {
 		return models.CreativeImage{}, err
+	}
+	var err error
+	image.VideoMetadata, err = db.UnmarshalVideoCreativeMetadata(videoMetadataRaw)
+	if err != nil {
+		return models.CreativeImage{}, fmt.Errorf("decode creative image video_metadata: %w", err)
 	}
 	if campaignID.Valid {
 		image.CampaignID = campaignID.String
@@ -398,6 +405,7 @@ func imageFromCreative(creative models.Creative) *models.CreativeImage {
 	if creative.ImageFormat != nil {
 		image.FileFormat = *creative.ImageFormat
 	}
+	image.VideoMetadata = models.NormalizeVideoCreativeMetadata(creative.VideoMetadata)
 	return image
 }
 

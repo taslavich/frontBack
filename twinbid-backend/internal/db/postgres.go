@@ -302,9 +302,12 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			mime_type TEXT NOT NULL,
 			file_format TEXT NOT NULL,
 			size_bytes BIGINT NOT NULL DEFAULT 0 CHECK (size_bytes >= 0),
+			video_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 		);`,
+		`ALTER TABLE creative_images ADD COLUMN IF NOT EXISTS video_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+		`UPDATE creative_images SET video_metadata='{}'::jsonb WHERE video_metadata IS NULL;`,
 		`UPDATE creatives cr
 		 SET banner_type='iframe', updated_at=NOW()
 		 FROM campaigns c
@@ -531,7 +534,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		)
 		INSERT INTO creative_images (
 			id, user_id, campaign_id, creative_id, s3_key, web_url, original_name,
-			mime_type, file_format, size_bytes
+			mime_type, file_format, size_bytes, video_metadata
 		)
 		SELECT image_id, user_id, campaign_id, creative_id, s3_key,
 			$1 || '/api/media/' || image_id::text,
@@ -545,7 +548,8 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 				ELSE 'application/octet-stream'
 			END,
 			file_format,
-			0
+			0,
+			'{}'::jsonb
 		FROM legacy
 		ON CONFLICT DO NOTHING
 	`, baseURL)

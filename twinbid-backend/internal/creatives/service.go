@@ -2,14 +2,20 @@ package creatives
 
 import (
 	"context"
-	"encoding/xml"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"twinbid-backend/internal/campaigns"
 	"twinbid-backend/internal/httpx"
@@ -68,6 +74,13 @@ func (s *Service) UploadImage(ctx context.Context, userID, campaignID string, fi
 	if err := validateCreativeMediaFormat(campaign.FormatType, mimeType); err != nil {
 		return models.CreativeImage{}, err
 	}
+	var videoMetadata *models.VideoCreativeMetadata
+	if campaign.FormatType == "video" {
+		videoMetadata, err = inspectUploadedVideo(ctx, file, sizeBytes)
+		if err != nil {
+			return models.CreativeImage{}, err
+		}
+	}
 	if filename == "" {
 		filename = header.Filename
 	}
@@ -79,6 +92,9 @@ func (s *Service) UploadImage(ctx context.Context, userID, campaignID string, fi
 	if webURL == "" {
 		return models.CreativeImage{}, fmt.Errorf("PUBLIC_API_BASE_URL is required")
 	}
+	if campaign.FormatType == "video" && !validHTTPSURL(webURL) {
+		return models.CreativeImage{}, fmt.Errorf("PUBLIC_API_BASE_URL must use https for VIDEO delivery")
+	}
 
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return models.CreativeImage{}, fmt.Errorf("rewind image: %w", err)
@@ -88,15 +104,16 @@ func (s *Service) UploadImage(ctx context.Context, userID, campaignID string, fi
 	}
 
 	image := models.CreativeImage{
-		ID:           imageID,
-		UserID:       userID,
-		CampaignID:   campaignID,
-		S3Key:        s3Key,
-		WebURL:       webURL,
-		OriginalName: filename,
-		MimeType:     mimeType,
-		FileFormat:   extension,
-		SizeBytes:    sizeBytes,
+		ID:            imageID,
+		UserID:        userID,
+		CampaignID:    campaignID,
+		S3Key:         s3Key,
+		WebURL:        webURL,
+		OriginalName:  filename,
+		MimeType:      mimeType,
+		FileFormat:    extension,
+		SizeBytes:     sizeBytes,
+		VideoMetadata: models.NormalizeVideoCreativeMetadata(videoMetadata),
 	}
 	created, err := s.repo.CreateImage(ctx, image)
 	if err != nil {
@@ -128,6 +145,11 @@ func (s *Service) Create(ctx context.Context, userID, campaignID string, req Cre
 		VideoMetadata:  models.NormalizeVideoCreativeMetadata(req.VideoMetadata),
 		ImageID:        imageID,
 		FormatType:     campaign.FormatType,
+	}
+	if campaign.FormatType == "video" {
+		if err := s.prepareVideoCreative(ctx, userID, &creative); err != nil {
+			return models.Creative{}, err
+		}
 	}
 	normalizeTrackerMacrosForCreative(&creative)
 	if err := validateCreative(creative); err != nil {
@@ -189,6 +211,11 @@ func (s *Service) Patch(ctx context.Context, userID, creativeID string, req Patc
 			current.ImageID = nil
 		}
 	}
+	if current.FormatType == "video" {
+		if err := s.prepareVideoCreative(ctx, userID, &current); err != nil {
+			return models.Creative{}, err
+		}
+	}
 
 	normalizeTrackerMacrosForCreative(&current)
 	if err := validateCreative(current); err != nil {
@@ -234,6 +261,21 @@ func (s *Service) GetMediaImage(ctx context.Context, imageID string) (models.Cre
 	return image, object, nil
 }
 
+func (s *Service) GetMediaImageRange(ctx context.Context, imageID string, start, end int64) (models.CreativeImage, *storage.Object, error) {
+	image, err := s.repo.GetImage(ctx, strings.TrimSpace(imageID))
+	if err != nil {
+		return models.CreativeImage{}, nil, err
+	}
+	object, err := s.s3.GetRange(ctx, image.S3Key, start, end)
+	if err != nil {
+		if storage.IsNotFound(err) {
+			return models.CreativeImage{}, nil, httpx.NotFound("image object not found")
+		}
+		return models.CreativeImage{}, nil, err
+	}
+	return image, object, nil
+}
+
 func (s *Service) HeadMediaImage(ctx context.Context, imageID string) (models.CreativeImage, storage.ObjectMetadata, error) {
 	image, err := s.repo.GetImage(ctx, strings.TrimSpace(imageID))
 	if err != nil {
@@ -247,6 +289,34 @@ func (s *Service) HeadMediaImage(ctx context.Context, imageID string) (models.Cr
 		return models.CreativeImage{}, storage.ObjectMetadata{}, err
 	}
 	return image, metadata, nil
+}
+
+func (s *Service) prepareVideoCreative(ctx context.Context, userID string, creative *models.Creative) error {
+	if creative == nil || creative.FormatType != "video" {
+		return nil
+	}
+	if creative.ImageID == nil || strings.TrimSpace(*creative.ImageID) == "" {
+		return httpx.BadRequest("image_id is required for video creatives")
+	}
+	image, err := s.repo.GetImage(ctx, strings.TrimSpace(*creative.ImageID))
+	if err != nil {
+		return err
+	}
+	if image.UserID != userID || image.CampaignID != creative.CampaignID {
+		return httpx.NotFound("image not found")
+	}
+	if strings.ToLower(strings.TrimSpace(image.MimeType)) != "video/mp4" || image.VideoMetadata == nil {
+		return httpx.BadRequest("video creative requires a server-validated MP4 upload")
+	}
+	metadata := models.NormalizeVideoCreativeMetadata(image.VideoMetadata)
+	if err := validateVideoMetadata(metadata); err != nil {
+		return err
+	}
+	w, h := metadata.Width, metadata.Height
+	creative.W = &w
+	creative.H = &h
+	creative.VideoMetadata = metadata
+	return nil
 }
 
 func (s *Service) ownedCampaign(ctx context.Context, userID, campaignID string) (models.Campaign, error) {
@@ -343,14 +413,17 @@ func validateCreative(creative models.Creative) error {
 		if creative.BannerType != nil {
 			return httpx.BadRequest("banner_type is only allowed for banner creatives")
 		}
+		if creative.ImageID == nil {
+			return httpx.BadRequest("image_id is required for video creatives")
+		}
 		if creative.W == nil || creative.H == nil {
-			return httpx.BadRequest("w and h are required for video creatives")
+			return httpx.BadRequest("server-derived w and h are required for video creatives")
 		}
 		if creative.VideoFormat == nil || models.NormalizeVideoFormat(*creative.VideoFormat) == "" {
 			return httpx.BadRequest("video_format must be instream, outstream or video_popup")
 		}
-		if !validVASTADM(creative.ADM) {
-			return httpx.BadRequest("adm must contain valid VAST XML for video creatives")
+		if !validAdvertiserURL(creative.ADM) {
+			return httpx.BadRequest("adm must be a valid http/https advertiser URL for video creatives")
 		}
 		if err := validateVideoMetadata(creative.VideoMetadata); err != nil {
 			return err
@@ -368,56 +441,72 @@ func validateCreative(creative models.Creative) error {
 	return nil
 }
 
-func validVASTADM(adm string) bool {
-	decoder := xml.NewDecoder(strings.NewReader(strings.TrimSpace(adm)))
-	for {
-		tok, err := decoder.Token()
-		if err != nil {
-			return false
-		}
-		if start, ok := tok.(xml.StartElement); ok {
-			return strings.EqualFold(start.Name.Local, "VAST")
-		}
+func validAdvertiserURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return false
 	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+func validHTTPSURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && u.Host != "" && u.Scheme == "https"
 }
 
 func validateVideoMetadata(metadata *models.VideoCreativeMetadata) error {
 	if metadata == nil {
 		return httpx.BadRequest("video_metadata is required for video creatives")
 	}
-	if len(metadata.Mimes) == 0 {
-		return httpx.BadRequest("video_metadata.mimes is required for video creatives")
+	if len(metadata.Mimes) == 0 || !containsStringFold(metadata.Mimes, "video/mp4") {
+		return httpx.BadRequest("video_metadata must contain video/mp4")
 	}
-	for _, mimeType := range metadata.Mimes {
-		if !allowedVideoMetadataMIME(mimeType) {
-			return httpx.BadRequest("video_metadata.mimes must contain VIDEO/VPAID-compatible MIME types")
-		}
+	if metadata.Duration <= 0 {
+		return httpx.BadRequest("video_metadata.duration must be greater than zero")
 	}
-	if metadata.Duration < 0 {
-		return httpx.BadRequest("video_metadata.duration cannot be negative")
+	if metadata.Width != 1920 || metadata.Height != 1080 {
+		return httpx.BadRequest("video must be exactly 1920x1080")
+	}
+	if strings.TrimSpace(metadata.Codec) == "" {
+		return httpx.BadRequest("video_metadata.codec is required")
+	}
+	if metadata.FileSize <= 0 || metadata.FileSize > maxCreativeVideoSize {
+		return httpx.BadRequest("video_metadata.file_size is invalid")
 	}
 	if metadata.Bitrate < 0 {
 		return httpx.BadRequest("video_metadata.bitrate cannot be negative")
 	}
-	if metadata.Linearity != 0 && metadata.Linearity != 1 && metadata.Linearity != 2 {
-		return httpx.BadRequest("video_metadata.linearity must be 1 or 2 when set")
+	if metadata.Linearity != 1 {
+		return httpx.BadRequest("uploaded MP4 video_metadata.linearity must be 1")
 	}
 	for _, protocol := range metadata.Protocols {
-		if protocol <= 0 {
-			return httpx.BadRequest("video_metadata.protocols values must be greater than zero")
+		if protocol != 2 && protocol != 3 && protocol != 7 {
+			return httpx.BadRequest("uploaded MP4 video_metadata.protocols may contain only VAST InLine protocols 2, 3 and 7")
 		}
 	}
-	for _, api := range metadata.API {
-		if api <= 0 {
-			return httpx.BadRequest("video_metadata.api values must be greater than zero")
-		}
-	}
-	for _, attr := range metadata.Attributes {
-		if attr <= 0 {
-			return httpx.BadRequest("video_metadata.battr values must be greater than zero")
-		}
+	if !containsInt(metadata.Protocols, 2) || !containsInt(metadata.Protocols, 3) || !containsInt(metadata.Protocols, 7) {
+		return httpx.BadRequest("uploaded MP4 video_metadata.protocols must contain 2, 3 and 7")
 	}
 	return nil
+}
+
+func containsStringFold(values []string, want string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func allowedVideoMetadataMIME(mimeType string) bool {
@@ -507,6 +596,147 @@ func inspectCreativeMedia(file multipart.File, declaredMimeType string) (size in
 		return 0, "", "", fmt.Errorf("rewind creative media: %w", err)
 	}
 	return size, mimeType, extension, nil
+}
+
+type ffprobeResult struct {
+	Streams []struct {
+		CodecName string `json:"codec_name"`
+		Width     int    `json:"width"`
+		Height    int    `json:"height"`
+		BitRate   string `json:"bit_rate"`
+		Duration  string `json:"duration"`
+	} `json:"streams"`
+	Format struct {
+		FormatName string `json:"format_name"`
+		Duration   string `json:"duration"`
+		BitRate    string `json:"bit_rate"`
+	} `json:"format"`
+}
+
+func inspectUploadedVideo(ctx context.Context, file multipart.File, fileSize int64) (*models.VideoCreativeMetadata, error) {
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe is required for VIDEO uploads: %w", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("rewind video before ffprobe: %w", err)
+	}
+	defer func() { _, _ = file.Seek(0, io.SeekStart) }()
+
+	// ffprobe needs a seekable input for common MP4 files whose moov atom is at
+	// the end of the file. A bounded temporary file is therefore more reliable
+	// than pipe:0 while still keeping the upload inspection isolated.
+	tmp, err := os.CreateTemp("", "twinbid-video-*.mp4")
+	if err != nil {
+		return nil, fmt.Errorf("create temporary VIDEO inspection file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	written, copyErr := io.Copy(tmp, io.LimitReader(file, maxCreativeVideoSize+1))
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		return nil, fmt.Errorf("copy VIDEO for ffprobe: %w", copyErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close temporary VIDEO inspection file: %w", closeErr)
+	}
+	if written != fileSize || written <= 0 || written > maxCreativeVideoSize {
+		return nil, httpx.BadRequest("MP4 file size changed during inspection")
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(
+		probeCtx,
+		ffprobePath,
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=codec_name,width,height,bit_rate,duration:format=format_name,duration,bit_rate",
+		"-of", "json",
+		tmpName,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		if probeCtx.Err() != nil {
+			return nil, fmt.Errorf("ffprobe VIDEO inspection timed out: %w", probeCtx.Err())
+		}
+		return nil, httpx.BadRequest("invalid MP4: ffprobe could not read a video stream")
+	}
+	return parseFFProbeVideoMetadata(output, fileSize)
+}
+
+func parseFFProbeVideoMetadata(raw []byte, fileSize int64) (*models.VideoCreativeMetadata, error) {
+	var probe ffprobeResult
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, fmt.Errorf("decode ffprobe output: %w", err)
+	}
+	if len(probe.Streams) == 0 {
+		return nil, httpx.BadRequest("invalid MP4: video stream is missing")
+	}
+	formatName := strings.ToLower(strings.TrimSpace(probe.Format.FormatName))
+	formatIsMP4 := false
+	for _, name := range strings.Split(formatName, ",") {
+		if strings.TrimSpace(name) == "mp4" {
+			formatIsMP4 = true
+			break
+		}
+	}
+	if !formatIsMP4 {
+		return nil, httpx.BadRequest("invalid MP4: ffprobe did not identify an MP4 container")
+	}
+	stream := probe.Streams[0]
+	if stream.Width != 1920 || stream.Height != 1080 {
+		return nil, httpx.BadRequest("video resolution must be exactly 1920x1080")
+	}
+	codec := strings.ToLower(strings.TrimSpace(stream.CodecName))
+	if codec == "" {
+		return nil, httpx.BadRequest("invalid MP4: video codec is missing")
+	}
+	durationSeconds, err := parsePositiveFFProbeFloat(stream.Duration)
+	if err != nil {
+		durationSeconds, err = parsePositiveFFProbeFloat(probe.Format.Duration)
+	}
+	if err != nil {
+		return nil, httpx.BadRequest("invalid MP4: video duration is missing")
+	}
+	bitrate := parseFFProbeBitrateKbps(stream.BitRate)
+	if bitrate == 0 {
+		bitrate = parseFFProbeBitrateKbps(probe.Format.BitRate)
+	}
+	if fileSize <= 0 || fileSize > maxCreativeVideoSize {
+		return nil, httpx.BadRequest("MP4 file size is invalid")
+	}
+	return &models.VideoCreativeMetadata{
+		Mimes:     []string{"video/mp4"},
+		Duration:  int(math.Ceil(durationSeconds)),
+		Protocols: []int{2, 3, 7},
+		Bitrate:   bitrate,
+		Linearity: 1,
+		Width:     stream.Width,
+		Height:    stream.Height,
+		Codec:     codec,
+		FileSize:  fileSize,
+	}, nil
+}
+
+func parsePositiveFFProbeFloat(raw string) (float64, error) {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("invalid positive ffprobe value %q", raw)
+	}
+	return value, nil
+}
+
+func parseFFProbeBitrateKbps(raw string) int {
+	bps, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || bps <= 0 {
+		return 0
+	}
+	kbps := bps / 1000
+	if kbps > int64(^uint(0)>>1) {
+		return 0
+	}
+	return int(kbps)
 }
 
 func normalizeDeclaredMimeType(value string) string {

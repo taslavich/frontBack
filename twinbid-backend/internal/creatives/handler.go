@@ -1,10 +1,12 @@
 package creatives
 
 import (
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"twinbid-backend/internal/auth"
 	"twinbid-backend/internal/httpx"
@@ -105,6 +107,33 @@ func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rangeHeader := strings.TrimSpace(r.Header.Get("Range"))
+	if rangeHeader != "" {
+		image, fullMetadata, err := h.svc.HeadMediaImage(r.Context(), imageID)
+		if err != nil {
+			httpx.Error(w, err)
+			return
+		}
+		start, end, ok := parseSingleByteRange(rangeHeader, fullMetadata.ContentLength)
+		if !ok {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fullMetadata.ContentLength))
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		_, object, err := h.svc.GetMediaImageRange(r.Context(), imageID, start, end)
+		if err != nil {
+			httpx.Error(w, err)
+			return
+		}
+		defer object.Body.Close()
+		setMediaHeaders(w, image.OriginalName, image.MimeType, object.ObjectMetadata)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fullMetadata.ContentLength))
+		w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.Copy(w, object.Body)
+		return
+	}
+
 	image, object, err := h.svc.GetMediaImage(r.Context(), imageID)
 	if err != nil {
 		httpx.Error(w, err)
@@ -113,9 +142,52 @@ func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
 	defer object.Body.Close()
 	setMediaHeaders(w, image.OriginalName, image.MimeType, object.ObjectMetadata)
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.Copy(w, object.Body); err != nil {
-		return
+	_, _ = io.Copy(w, object.Body)
+}
+
+func parseSingleByteRange(header string, size int64) (start, end int64, ok bool) {
+	if size <= 0 {
+		return 0, 0, false
 	}
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(strings.ToLower(header), "bytes=") {
+		return 0, 0, false
+	}
+	spec := strings.TrimSpace(header[len("bytes="):])
+	if spec == "" || strings.Contains(spec, ",") {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(spec, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	left, right := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	if left == "" {
+		suffix, err := strconv.ParseInt(right, 10, 64)
+		if err != nil || suffix <= 0 {
+			return 0, 0, false
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return size - suffix, size - 1, true
+	}
+
+	start, err := strconv.ParseInt(left, 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return 0, 0, false
+	}
+	if right == "" {
+		return start, size - 1, true
+	}
+	end, err = strconv.ParseInt(right, 10, 64)
+	if err != nil || end < start {
+		return 0, 0, false
+	}
+	if end >= size {
+		end = size - 1
+	}
+	return start, end, true
 }
 
 func setMediaHeaders(w http.ResponseWriter, filename, storedMimeType string, metadata storage.ObjectMetadata) {
@@ -127,6 +199,7 @@ func setMediaHeaders(w http.ResponseWriter, filename, storedMimeType string, met
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filename}))

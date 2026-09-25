@@ -104,18 +104,19 @@ type Creative struct {
 }
 
 type CreativeImage struct {
-	ID           string    `json:"image_id"`
-	UserID       string    `json:"-"`
-	CampaignID   string    `json:"campaign_id"`
-	CreativeID   *string   `json:"creative_id,omitempty"`
-	S3Key        string    `json:"-"`
-	WebURL       string    `json:"image_url"`
-	OriginalName string    `json:"filename"`
-	MimeType     string    `json:"mime_type"`
-	FileFormat   string    `json:"file_format"`
-	SizeBytes    int64     `json:"size_bytes"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID            string                 `json:"image_id"`
+	UserID        string                 `json:"-"`
+	CampaignID    string                 `json:"campaign_id"`
+	CreativeID    *string                `json:"creative_id,omitempty"`
+	S3Key         string                 `json:"-"`
+	WebURL        string                 `json:"image_url"`
+	OriginalName  string                 `json:"filename"`
+	MimeType      string                 `json:"mime_type"`
+	FileFormat    string                 `json:"file_format"`
+	SizeBytes     int64                  `json:"size_bytes"`
+	VideoMetadata *VideoCreativeMetadata `json:"video_metadata,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
 }
 
 type TopupStatus string

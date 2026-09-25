@@ -21,9 +21,9 @@ func NormalizeVideoFormat(value string) string {
 	}
 }
 
-// VideoCreativeMetadata contains technical information about a VIDEO creative.
-// It is not advertiser targeting: ADV uses these fields only to reject
-// technically incompatible imp.video requests.
+// VideoCreativeMetadata is server-derived technical metadata for an uploaded
+// VIDEO creative. Business targeting remains limited to VideoFormat; these
+// fields are used only to prove OpenRTB technical compatibility.
 type VideoCreativeMetadata struct {
 	Mimes      []string `json:"mimes,omitempty"`
 	Duration   int      `json:"duration,omitempty"`
@@ -33,6 +33,10 @@ type VideoCreativeMetadata struct {
 	Bitrate    int      `json:"bitrate,omitempty"`
 	Linearity  int      `json:"linearity,omitempty"`
 	Skippable  *bool    `json:"skippable,omitempty"`
+	Width      int      `json:"width,omitempty"`
+	Height     int      `json:"height,omitempty"`
+	Codec      string   `json:"codec,omitempty"`
+	FileSize   int64    `json:"file_size,omitempty"`
 }
 
 func NormalizeVideoCreativeMetadata(v *VideoCreativeMetadata) *VideoCreativeMetadata {
@@ -44,6 +48,7 @@ func NormalizeVideoCreativeMetadata(v *VideoCreativeMetadata) *VideoCreativeMeta
 	out.Protocols = normalizeIntSlice(v.Protocols)
 	out.API = normalizeIntSlice(v.API)
 	out.Attributes = normalizeIntSlice(v.Attributes)
+	out.Codec = strings.ToLower(strings.TrimSpace(v.Codec))
 	if v.Skippable != nil {
 		value := *v.Skippable
 		out.Skippable = &value
