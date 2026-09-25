@@ -8,6 +8,7 @@ const (
 	GroupByHour       GroupBy = "hour"
 	GroupByCountry    GroupBy = "country"
 	GroupByOS         GroupBy = "os"
+	GroupByOSVersion  GroupBy = "os_version"
 	GroupByBrowser    GroupBy = "browser"
 	GroupByDeviceType GroupBy = "device_type"
 	GroupBySiteID     GroupBy = "site_id"
@@ -20,6 +21,7 @@ type FilterBy string
 const (
 	FilterByCountry    FilterBy = "country"
 	FilterByOS         FilterBy = "os"
+	FilterByOSVersion  FilterBy = "os_version"
 	FilterByBrowser    FilterBy = "browser"
 	FilterByDeviceType FilterBy = "device_type"
 )

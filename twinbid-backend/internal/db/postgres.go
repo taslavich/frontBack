@@ -127,6 +127,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			language JSONB NOT NULL DEFAULT '{}'::jsonb,
 			device_type JSONB NOT NULL DEFAULT '{}'::jsonb,
 			os JSONB NOT NULL DEFAULT '{}'::jsonb,
+			os_version JSONB NOT NULL DEFAULT '{}'::jsonb,
 			browser JSONB NOT NULL DEFAULT '{}'::jsonb,
 			site_id JSONB NOT NULL DEFAULT '{}'::jsonb,
 			ip JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -137,6 +138,7 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS block_vpn BOOLEAN NOT NULL DEFAULT false;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS rtb BOOLEAN NOT NULL DEFAULT false;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS dsp_link TEXT;`,
+		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS os_version JSONB NOT NULL DEFAULT '{}'::jsonb;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS antiperekrut_max_traffic_percent NUMERIC(5,2) NOT NULL DEFAULT 100.00 CHECK (antiperekrut_max_traffic_percent >= 0.01 AND antiperekrut_max_traffic_percent <= 100.00);`,
 		`CREATE TABLE IF NOT EXISTS antiperekrut_control_state (

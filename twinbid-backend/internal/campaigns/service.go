@@ -157,6 +157,7 @@ func (s *Service) Create(ctx context.Context, userID string, req UpsertCampaignR
 		Language:           models.NormalizeTargetingFilter(req.Language),
 		DeviceType:         models.NormalizeTargetingFilter(req.DeviceType),
 		OS:                 models.NormalizeTargetingFilter(req.OS),
+		OSVersion:          models.NormalizeTargetingFilter(req.OSVersion),
 		Browser:            models.NormalizeTargetingFilter(req.Browser),
 		SiteID:             models.NormalizeTargetingFilter(req.SiteID),
 		IP:                 models.NormalizeTargetingFilter(req.IP),
@@ -427,6 +428,9 @@ func validateCampaign(c models.Campaign) error {
 	}
 	if c.EndTS.Before(c.StartTS) {
 		return httpx.BadRequest("end_ts must be after start_ts")
+	}
+	if err := validateOSVersionTargeting(c.OS, c.OSVersion); err != nil {
+		return err
 	}
 	return nil
 }

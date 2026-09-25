@@ -233,6 +233,27 @@ func buildTrafficQueryParts(req TrafficSegmentRequest, table string) (string, []
 		}
 	}
 
+	if len(req.OSVersion) > 0 {
+		mode := req.OSVersionMode
+		if mode == "" {
+			mode = FilterModeInclude
+		}
+		if mode != FilterModeInclude && mode != FilterModeExclude {
+			return "", nil, "", httpx.BadRequest("invalid os_version_mode")
+		}
+		predicate, predicateArgs, err := buildOSVersionPredicate(req.OSVersion)
+		if err != nil {
+			return "", nil, "", err
+		}
+		if predicate != "" {
+			if mode == FilterModeExclude {
+				predicate = "NOT " + predicate
+			}
+			parts = append(parts, predicate)
+			args = append(args, predicateArgs...)
+		}
+	}
+
 	return strings.Join(parts, " AND "), args, table, nil
 }
 

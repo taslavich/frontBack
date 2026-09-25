@@ -31,6 +31,7 @@ type UpsertCampaignRequest struct {
 	Language           models.TargetingFilter    `json:"language"`
 	DeviceType         models.TargetingFilter    `json:"device_type"`
 	OS                 models.TargetingFilter    `json:"os"`
+	OSVersion          models.TargetingFilter    `json:"os_version"`
 	Browser            models.TargetingFilter    `json:"browser"`
 	SiteID             models.TargetingFilter    `json:"site_id"`
 	IP                 models.TargetingFilter    `json:"ip"`
@@ -70,6 +71,7 @@ type PatchCampaignRequest struct {
 	Language           *models.TargetingFilter    `json:"language"`
 	DeviceType         *models.TargetingFilter    `json:"device_type"`
 	OS                 *models.TargetingFilter    `json:"os"`
+	OSVersion          *models.TargetingFilter    `json:"os_version"`
 	Browser            *models.TargetingFilter    `json:"browser"`
 	SiteID             *models.TargetingFilter    `json:"site_id"`
 	IP                 *models.TargetingFilter    `json:"ip"`

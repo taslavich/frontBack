@@ -72,6 +72,7 @@ type Campaign struct {
 	Language            TargetingFilter    `json:"language"`
 	DeviceType          TargetingFilter    `json:"device_type"`
 	OS                  TargetingFilter    `json:"os"`
+	OSVersion           TargetingFilter    `json:"os_version"`
 	Browser             TargetingFilter    `json:"browser"`
 	SiteID              TargetingFilter    `json:"site_id"`
 	IP                  TargetingFilter    `json:"ip"`

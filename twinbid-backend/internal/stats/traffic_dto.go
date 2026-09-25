@@ -25,6 +25,9 @@ type TrafficSegmentRequest struct {
 	OS     []string   `json:"os,omitempty"`
 	OSMode FilterMode `json:"os_mode,omitempty"`
 
+	OSVersion     []string   `json:"os_version,omitempty"`
+	OSVersionMode FilterMode `json:"os_version_mode,omitempty"`
+
 	Browser     []string   `json:"browser,omitempty"`
 	BrowserMode FilterMode `json:"browser_mode,omitempty"`
 

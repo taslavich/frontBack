@@ -89,6 +89,9 @@ func applyPatchRequest(current *models.Campaign, req PatchCampaignRequest) {
 	if req.OS != nil {
 		current.OS = cloneFilterForStorage(*req.OS)
 	}
+	if req.OSVersion != nil {
+		current.OSVersion = cloneFilterForStorage(*req.OSVersion)
+	}
 	if req.Browser != nil {
 		current.Browser = cloneFilterForStorage(*req.Browser)
 	}
@@ -150,6 +153,7 @@ func requiresTrafficReset(oldCampaign, newCampaign models.Campaign) bool {
 		filterExpands(oldCampaign.Language, newCampaign.Language) ||
 		filterExpands(oldCampaign.DeviceType, newCampaign.DeviceType) ||
 		filterExpands(oldCampaign.OS, newCampaign.OS) ||
+		filterExpands(oldCampaign.OSVersion, newCampaign.OSVersion) ||
 		filterExpands(oldCampaign.Browser, newCampaign.Browser) ||
 		filterExpands(oldCampaign.SiteID, newCampaign.SiteID) ||
 		filterExpands(oldCampaign.IP, newCampaign.IP) {
@@ -234,6 +238,7 @@ func cloneCampaignForComparison(c models.Campaign) models.Campaign {
 	c.Language = cloneFilterForStorage(c.Language)
 	c.DeviceType = cloneFilterForStorage(c.DeviceType)
 	c.OS = cloneFilterForStorage(c.OS)
+	c.OSVersion = cloneFilterForStorage(c.OSVersion)
 	c.Browser = cloneFilterForStorage(c.Browser)
 	c.SiteID = cloneFilterForStorage(c.SiteID)
 	c.IP = cloneFilterForStorage(c.IP)

@@ -43,6 +43,10 @@ var groupColumns = map[GroupBy]groupSpec{
 		selectExpr: "os",
 		groupExpr:  "os",
 	},
+	GroupByOSVersion: {
+		selectExpr: osVersionGroupExpr,
+		groupExpr:  "os, os_version",
+	},
 	GroupByBrowser: {
 		selectExpr: "browser",
 		groupExpr:  "browser",
@@ -64,6 +68,7 @@ var groupColumns = map[GroupBy]groupSpec{
 var filterColumns = map[string]string{
 	string(FilterByCountry):    "geo",
 	string(FilterByOS):         "os",
+	string(FilterByOSVersion):  "os_version",
 	string(FilterByBrowser):    "browser",
 	string(FilterByDeviceType): "lowerUTF8(device_type)",
 }
@@ -284,6 +289,18 @@ func buildWhere(req QueryRequest, userID, from, to string) (string, []any, error
 
 	for key, values := range req.Filters {
 		if len(values) == 0 {
+			continue
+		}
+
+		if key == string(FilterByOSVersion) {
+			predicate, predicateArgs, err := buildOSVersionPredicate(values)
+			if err != nil {
+				return "", nil, err
+			}
+			if predicate != "" {
+				parts = append(parts, predicate)
+				args = append(args, predicateArgs...)
+			}
 			continue
 		}
 
