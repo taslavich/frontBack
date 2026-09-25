@@ -293,7 +293,7 @@ func TestTrackerMacrosRejectUnknownKeysAndInvalidNames(t *testing.T) {
 }
 
 func TestValidateVideoCreative(t *testing.T) {
-	w, h := 1920, 1080
+	w, h := 1280, 720
 	imageID := "11111111-1111-1111-1111-111111111111"
 	videoFormat := models.VideoFormatInstream
 	skippable := true
@@ -308,7 +308,7 @@ func TestValidateVideoCreative(t *testing.T) {
 		VideoMetadata: &models.VideoCreativeMetadata{
 			Mimes: []string{"video/mp4"}, Duration: 20, Protocols: []int{2, 3, 7},
 			API: []int{2}, Bitrate: 1200, Linearity: 1, Skippable: &skippable,
-			Width: 1920, Height: 1080, Codec: "h264", FileSize: 5 << 20,
+			Width: 1280, Height: 720, Codec: "", FileSize: 5 << 20,
 		},
 	}
 	if err := validateCreative(creative); err != nil {
@@ -321,7 +321,7 @@ func TestValidateVideoCreative(t *testing.T) {
 	}
 	creative.VideoMetadata = &models.VideoCreativeMetadata{
 		Mimes: []string{"video/mp4"}, Duration: 20, Protocols: []int{2, 3, 7},
-		Linearity: 1, Width: 1920, Height: 1080, Codec: "h264", FileSize: 5 << 20,
+		Linearity: 1, Width: 1280, Height: 720, Codec: "", FileSize: 5 << 20,
 	}
 
 	badFormat := "placement_5"
@@ -336,30 +336,25 @@ func TestValidateVideoCreative(t *testing.T) {
 	}
 }
 
-func TestParseFFProbeVideoMetadata(t *testing.T) {
-	raw := []byte(`{
-		"streams":[{"codec_name":"h264","width":1920,"height":1080,"bit_rate":"1250000","duration":"19.2"}],
-		"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"19.2","bit_rate":"1300000"}
-	}`)
-	got, err := parseFFProbeVideoMetadata(raw, 5<<20)
-	if err != nil {
-		t.Fatal(err)
+func TestValidateVideoMetadataTrustsFrontendResolution(t *testing.T) {
+	metadata := &models.VideoCreativeMetadata{
+		Mimes:     []string{"video/mp4"},
+		Duration:  20,
+		Protocols: []int{2, 3, 7},
+		Bitrate:   0,
+		Linearity: 1,
+		Width:     854,
+		Height:    480,
+		Codec:     "",
+		FileSize:  5 << 20,
 	}
-	if got.Width != 1920 || got.Height != 1080 || got.Duration != 20 || got.Codec != "h264" || got.Bitrate != 1250 || got.FileSize != 5<<20 {
-		t.Fatalf("unexpected ffprobe metadata: %#v", got)
+	if err := validateVideoMetadata(metadata); err != nil {
+		t.Fatalf("frontend-provided VIDEO metadata was rejected: %v", err)
 	}
-	if len(got.Protocols) != 3 || got.Protocols[0] != 2 || got.Protocols[1] != 3 || got.Protocols[2] != 7 {
-		t.Fatalf("unexpected supported protocols: %#v", got.Protocols)
-	}
-}
 
-func TestParseFFProbeVideoMetadataRejectsWrongResolutionAndMissingStream(t *testing.T) {
-	wrongResolution := []byte(`{"streams":[{"codec_name":"h264","width":1280,"height":720,"duration":"10"}],"format":{}}`)
-	if _, err := parseFFProbeVideoMetadata(wrongResolution, 1<<20); err == nil {
-		t.Fatal("wrong VIDEO resolution must be rejected")
-	}
-	if _, err := parseFFProbeVideoMetadata([]byte(`{"streams":[],"format":{}}`), 1<<20); err == nil {
-		t.Fatal("MP4 without a video stream must be rejected")
+	metadata.Width = 0
+	if err := validateVideoMetadata(metadata); err == nil {
+		t.Fatal("non-positive frontend width must still be rejected")
 	}
 }
 

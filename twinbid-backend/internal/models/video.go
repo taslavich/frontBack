@@ -21,9 +21,9 @@ func NormalizeVideoFormat(value string) string {
 	}
 }
 
-// VideoCreativeMetadata is server-derived technical metadata for an uploaded
-// VIDEO creative. Business targeting remains limited to VideoFormat; these
-// fields are used only to prove OpenRTB technical compatibility.
+// VideoCreativeMetadata is technical metadata supplied by the frontend for an
+// uploaded VIDEO creative. The cabinet persists it and ORTB uses it for
+// technical compatibility; the backend does not probe the media stream.
 type VideoCreativeMetadata struct {
 	Mimes      []string `json:"mimes,omitempty"`
 	Duration   int      `json:"duration,omitempty"`
