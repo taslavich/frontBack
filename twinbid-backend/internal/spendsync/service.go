@@ -41,7 +41,12 @@ WITH incoming(id, cum_done_dollars) AS (
     SELECT * FROM unnest($1::uuid[], $2::numeric[])
 )
 UPDATE users AS u
-SET cum_done_dollars = incoming.cum_done_dollars
+SET promo_spend_remaining = GREATEST(
+        0,
+        u.promo_spend_remaining - GREATEST(incoming.cum_done_dollars - u.promo_spend_synced, 0)
+    ),
+    promo_spend_synced = GREATEST(u.promo_spend_synced, incoming.cum_done_dollars),
+    cum_done_dollars = incoming.cum_done_dollars
 FROM incoming
 WHERE u.id = incoming.id`
 
@@ -119,10 +124,11 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	defer tx.Rollback()
 
 	if len(userIDs) > 0 {
-		// promo_spend_remaining is mutated only by the idempotent realtime
-		// percenter billing endpoint. This ClickHouse reconciliation updates
-		// cumulative spend/balance only; decrementing promo here as well would
-		// double-consume the same billed traffic.
+		// ClickHouse cumulative spend is the sole spend source for PostgreSQL promo
+		// consumption. promo_spend_synced is a monotonic per-user baseline, so each
+		// cumulative increment is applied to promo_spend_remaining exactly once.
+		// A delayed ClickHouse increment is intentionally charged whenever it
+		// becomes visible, even if a new promo grant was credited in the meantime.
 		execResult, err := tx.ExecContext(ctx, updateUsersCumulativeSpendSQL, pq.Array(userIDs), pq.Array(userAmounts))
 		if err != nil {
 			return result, fmt.Errorf("bulk update users cumulative spend: %w", err)

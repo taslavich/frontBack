@@ -18,7 +18,6 @@ import (
 	"twinbid-backend/internal/partners"
 	"twinbid-backend/internal/passimpay"
 	"twinbid-backend/internal/payments"
-	"twinbid-backend/internal/percenterbilling"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 	"twinbid-backend/internal/spendsync"
@@ -141,11 +140,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	statsHandler := stats.NewHandler(statsSvc)
 	advertiserStatsHandler := stats.NewAdvertiserAPIHandler(pg, statsSvc)
-	percenterBillingRepo := percenterbilling.NewRepository(pg)
-	percenterBillingHandler := percenterbilling.NewHandler(percenterBillingRepo, cfg.Bot.InternalSecret)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
-	go runPromoSpendLedgerCleanupTicker(ctx, percenterBillingRepo)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
 	go runInvoiceExpiryTicker(ctx, topupSvc)
@@ -153,56 +149,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 
-	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler, percenterBillingHandler)
+	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
-}
-
-const (
-	promoSpendLedgerCleanupInterval  = time.Hour
-	promoSpendLedgerCleanupMinAge    = 24 * time.Hour
-	promoSpendLedgerCleanupTimeout   = 30 * time.Second
-	promoSpendLedgerCleanupBatchSize = 10_000
-)
-
-func runPromoSpendLedgerCleanupTicker(ctx context.Context, repo *percenterbilling.Repository) {
-	run := func() {
-		cleanupCtx, cancel := context.WithTimeout(ctx, promoSpendLedgerCleanupTimeout)
-		defer cancel()
-
-		var totalDeleted int64
-		for {
-			deleted, err := repo.CleanupRetiredPromoSpendEvents(cleanupCtx, promoSpendLedgerCleanupMinAge, promoSpendLedgerCleanupBatchSize)
-			if err != nil {
-				if ctx.Err() == nil {
-					log.Printf("promo spend ledger cleanup failed after deleting %d rows: %v", totalDeleted, err)
-				}
-				return
-			}
-			totalDeleted += deleted
-			if deleted < promoSpendLedgerCleanupBatchSize {
-				break
-			}
-			if err := cleanupCtx.Err(); err != nil {
-				return
-			}
-		}
-		if totalDeleted > 0 {
-			log.Printf("promo spend ledger cleanup completed: deleted=%d", totalDeleted)
-		}
-	}
-
-	// Run shortly after startup through the same bounded path, then hourly.
-	run()
-	ticker := time.NewTicker(promoSpendLedgerCleanupInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			run()
-		}
-	}
 }
 
 func formatDurationSecondsExact(d time.Duration) string {
@@ -512,7 +460,6 @@ func buildRouter(
 	notificationHandler *notifications.Handler,
 	statsHandler *stats.Handler,
 	advertiserStatsHandler *stats.AdvertiserAPIHandler,
-	percenterBillingHandler *percenterbilling.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -527,7 +474,6 @@ func buildRouter(
 	r.Get("/api/media/{imageID}", creativeHandler.Media)
 	r.Head("/api/media/{imageID}", creativeHandler.Media)
 	r.Post("/api/internal/campaigns/{id}/moderation", campaignHandler.Moderate)
-	r.Post("/api/internal/percenter/promo-spend", percenterBillingHandler.Apply)
 	r.Post("/api/webhooks/passimpay", topupHandler.PassimPayWebhook)
 	r.Post("/api/webhooks/cryptomus", topupHandler.CryptomusWebhook)
 	r.Get("/api/advertiser/stats", advertiserStatsHandler.Query)

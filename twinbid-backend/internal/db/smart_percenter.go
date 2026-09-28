@@ -23,6 +23,12 @@ func smartPercenterSchemaQueries() []string {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_spend_remaining DECIMAL NOT NULL DEFAULT 0;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_revision BIGINT NOT NULL DEFAULT 0;`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_generation BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_spend_synced DECIMAL;`,
+		`UPDATE users
+		 SET promo_spend_synced = cum_done_dollars
+		 WHERE promo_spend_synced IS NULL;`,
+		`ALTER TABLE users ALTER COLUMN promo_spend_synced SET DEFAULT 0;`,
+		`ALTER TABLE users ALTER COLUMN promo_spend_synced SET NOT NULL;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS type_model INT NOT NULL DEFAULT 1;`,
 		`DO $$
 		BEGIN
@@ -72,19 +78,6 @@ func smartPercenterSchemaQueries() []string {
 					CHECK (promo_generation >= 0);
 			END IF;
 		END $$;`,
-		`CREATE TABLE IF NOT EXISTS adv_promo_spend_events (
-			event_id TEXT PRIMARY KEY,
-			user_id TEXT NOT NULL,
-			campaign_id TEXT NOT NULL,
-			promo_generation BIGINT NOT NULL DEFAULT 0,
-			spend_delta NUMERIC NOT NULL CHECK (spend_delta > 0),
-			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);`,
-		`ALTER TABLE adv_promo_spend_events ADD COLUMN IF NOT EXISTS promo_generation BIGINT NOT NULL DEFAULT 0;`,
-		`CREATE INDEX IF NOT EXISTS idx_adv_promo_spend_events_applied_at
-			ON adv_promo_spend_events(applied_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_adv_promo_spend_events_user_generation_applied_at
-			ON adv_promo_spend_events(user_id, promo_generation, applied_at);`,
 		`CREATE OR REPLACE FUNCTION bump_users_promo_revision()
 		RETURNS TRIGGER
 		LANGUAGE plpgsql

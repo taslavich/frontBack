@@ -42,13 +42,21 @@ func TestSplitTotalsRejectsInvalidRows(t *testing.T) {
 	}
 }
 
-func TestUserSpendSyncDoesNotMutatePromoState(t *testing.T) {
+func TestUserSpendSyncConsumesPromoFromNewClickHouseSpendOnly(t *testing.T) {
 	query := strings.ToLower(updateUsersCumulativeSpendSQL)
-	if strings.Contains(query, "promo_spend_remaining") || strings.Contains(query, "promo_revision") {
-		t.Fatalf("minute spend sync must not mutate realtime promo state: %s", updateUsersCumulativeSpendSQL)
+	for _, want := range []string{
+		"promo_spend_remaining",
+		"incoming.cum_done_dollars - u.promo_spend_synced",
+		"greatest(incoming.cum_done_dollars - u.promo_spend_synced, 0)",
+		"promo_spend_synced = greatest",
+		"cum_done_dollars = incoming.cum_done_dollars",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("ClickHouse promo spend sync query missing %q: %s", want, updateUsersCumulativeSpendSQL)
+		}
 	}
-	if !strings.Contains(query, "cum_done_dollars") {
-		t.Fatalf("spend sync query no longer updates cumulative spend: %s", updateUsersCumulativeSpendSQL)
+	if strings.Contains(query, "promo_generation") {
+		t.Fatalf("ClickHouse spend sync must not depend on promo generations: %s", updateUsersCumulativeSpendSQL)
 	}
 }
 
