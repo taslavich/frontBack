@@ -373,7 +373,6 @@ func scanImage(s scanner) (models.CreativeImage, error) {
 	if err != nil {
 		return models.CreativeImage{}, err
 	}
-	var err error
 	image.VideoMetadata, err = db.UnmarshalVideoCreativeMetadata(videoMetadataRaw)
 	if err != nil {
 		return models.CreativeImage{}, fmt.Errorf("decode creative image video_metadata: %w", err)
