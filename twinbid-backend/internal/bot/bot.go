@@ -62,6 +62,10 @@ type CampaignModerationRequest struct {
 	Creatives    []CreativePayload `json:"creatives"`
 }
 
+type TextMessageRequest struct {
+	Text string `json:"text"`
+}
+
 type PaymentModerationRequest struct {
 	ID                   string  `json:"id"`             // user_transactions.id, именно он идет в /api/transactions/{id}/approve_admin
 	TransactionID        string  `json:"transaction_id"` // внешний/публичный transaction_id, только для отображения
@@ -82,6 +86,10 @@ func (b *BotClient) SendCampaignModeration(ctx context.Context, req CampaignMode
 		return b.postCampaignMultipart(ctx, req)
 	}
 	return b.postJSON(ctx, "/internal/campaigns/moderation", req)
+}
+
+func (b *BotClient) SendTextMessage(ctx context.Context, text string) error {
+	return b.postJSON(ctx, "/internal/messages/send", TextMessageRequest{Text: text})
 }
 
 func (b *BotClient) SendPaymentModeration(ctx context.Context, req PaymentModerationRequest) error {

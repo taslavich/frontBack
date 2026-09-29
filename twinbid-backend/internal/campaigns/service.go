@@ -303,6 +303,31 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 			Creatives:    creativesPayload,
 		}); err != nil {
 			fmt.Println("GOT ERROR BOT")
+
+			// Best-effort operational alert through the bot's existing generic text
+			// endpoint. Use an independent short-lived context so a canceled client
+			// request does not suppress the alert attempt. If the bot/Telegram itself
+			// is unavailable, keep the original moderation error as the request error
+			// and only log the secondary alert failure.
+			alertCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			alertText := fmt.Sprintf(
+				"⚠️ Не удалось отправить кампанию на модерацию в Telegram\n"+
+					"campaign_id: %s\n"+
+					"campaign_name: %s\n"+
+					"user_id: %s\n"+
+					"user_email: %s\n"+
+					"error: %v",
+				campaign.CampaignID,
+				campaign.CampaignName,
+				campaign.UserID,
+				user.Mail,
+				err,
+			)
+			if alertErr := botClient.SendTextMessage(alertCtx, alertText); alertErr != nil {
+				fmt.Printf("failed to send campaign moderation failure alert: campaign_id=%s error=%v\n", campaign.CampaignID, alertErr)
+			}
+			cancel()
+
 			return models.Campaign{}, fmt.Errorf("send campaign moderation: %w", err)
 		}
 		fmt.Println("SUCCESS BOT")
