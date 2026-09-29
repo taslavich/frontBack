@@ -141,6 +141,17 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS os_version JSONB NOT NULL DEFAULT '{}'::jsonb;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS antiperekrut_max_traffic_percent NUMERIC(5,2) NOT NULL DEFAULT 100.00 CHECK (antiperekrut_max_traffic_percent >= 0.01 AND antiperekrut_max_traffic_percent <= 100.00);`,
+		`CREATE TABLE IF NOT EXISTS night_autoapproved_campaigns (
+			campaign_id UUID PRIMARY KEY REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+			window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+			autoapproved_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			manual_decision TEXT,
+			manual_decided_at TIMESTAMP WITH TIME ZONE,
+			CONSTRAINT check_night_autoapproved_manual_decision
+				CHECK (manual_decision IS NULL OR manual_decision IN ('approve','reject'))
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_night_autoapproved_window_start
+		 ON night_autoapproved_campaigns(window_start);`,
 		`CREATE TABLE IF NOT EXISTS antiperekrut_control_state (
 			id SMALLINT PRIMARY KEY,
 			global_reset_generation BIGINT NOT NULL DEFAULT 0,

@@ -148,6 +148,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runNoBudgetNotificationTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
+	go runNightCampaignAutoApproval(ctx, campaignSvc)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
@@ -272,6 +273,48 @@ func runNoBudgetNotificationTicker(ctx context.Context, pg *sql.DB, cfg config.C
 			run()
 		}
 	}
+}
+
+func runNightCampaignAutoApproval(ctx context.Context, campaignSvc *campaigns.Service) {
+	run := func(now time.Time) {
+		approved, err := campaignSvc.AutoApprovePendingNightModeration(ctx, now.UTC())
+		if err != nil {
+			log.Printf("night campaign auto-approval error: approved=%d error=%v", approved, err)
+			return
+		}
+		if approved > 0 {
+			log.Printf("night campaign auto-approval completed: approved=%d window_start_utc=%s", approved, mustNightWindowStart(now).Format(time.RFC3339))
+		}
+	}
+
+	// If the backend restarts during 18:00-06:00 UTC, reconcile the current
+	// moderation queue immediately so a restart cannot disable night approval.
+	if _, active := campaigns.NightModerationWindowStart(time.Now().UTC()); active {
+		run(time.Now().UTC())
+	}
+
+	for {
+		now := time.Now().UTC()
+		next := campaigns.NextNightModerationWindowStart(now)
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-timer.C:
+			run(time.Now().UTC())
+		}
+	}
+}
+
+func mustNightWindowStart(now time.Time) time.Time {
+	start, _ := campaigns.NightModerationWindowStart(now)
+	return start
 }
 
 func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc *campaigns.Service) {

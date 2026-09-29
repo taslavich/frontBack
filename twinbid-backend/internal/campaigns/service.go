@@ -72,14 +72,24 @@ const (
 )
 
 func (s *Service) Moderate(ctx context.Context, campaignID, decision string) (models.Campaign, error) {
+	decision = strings.ToLower(strings.TrimSpace(decision))
+	if decision != moderationDecisionApprove && decision != moderationDecisionReject {
+		return models.Campaign{}, httpx.BadRequest("decision must be approve or reject")
+	}
+
 	var oldStatus string
-	campaign, err := s.repo.UpdateLocked(ctx, campaignID, func(current *models.Campaign) error {
+	campaign, err := s.repo.UpdateLockedWithNightModeration(ctx, campaignID, func(current *models.Campaign, night *NightModerationState) error {
 		before := cloneCampaignForComparison(*current)
 		oldStatus = before.Status
 
-		if err := applyModerationDecision(current, decision); err != nil {
+		if night != nil {
+			if err := applyNightModerationDecision(current, night, decision, time.Now().UTC()); err != nil {
+				return err
+			}
+		} else if err := applyModerationDecision(current, decision); err != nil {
 			return err
 		}
+
 		if err := validateCampaign(*current); err != nil {
 			return err
 		}
@@ -296,6 +306,14 @@ func (s *Service) Patch(ctx context.Context, campaignID string, req PatchCampaig
 			return models.Campaign{}, fmt.Errorf("send campaign moderation: %w", err)
 		}
 		fmt.Println("SUCCESS BOT")
+
+		// During the 18:00-06:00 UTC night window the moderation message must
+		// remain fully actionable in Telegram, but the campaign itself is
+		// immediately approved in the background and remembered persistently.
+		campaign, err = s.autoApproveNightCampaignIfNeeded(ctx, campaign, time.Now().UTC())
+		if err != nil {
+			return models.Campaign{}, err
+		}
 	}
 
 	return campaign, nil
