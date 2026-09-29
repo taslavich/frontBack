@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"twinbid-backend/internal/auth"
+	"twinbid-backend/internal/bot"
 	"twinbid-backend/internal/campaigns"
 	"twinbid-backend/internal/config"
 	"twinbid-backend/internal/creatives"
@@ -39,9 +40,11 @@ type App struct {
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	pg, err := db.InitDBAndMigrate(ctx, cfg.Postgres.DSN, cfg.PublicAPIBaseURL)
 	if err != nil {
+		sendBackendDatabaseAlert(cfg.Bot, "postgres_init_and_migrate", err)
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
 	if err := db.EnsureSmartPercenterSchema(ctx, pg); err != nil {
+		sendBackendDatabaseAlert(cfg.Bot, "smart_percenter_schema", err)
 		_ = pg.Close()
 		return nil, fmt.Errorf("smart percenter schema: %w", err)
 	}
@@ -152,6 +155,31 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
+}
+
+func sendBackendDatabaseAlert(botCfg config.BotConfig, stage string, err error) {
+	if err == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	log.Printf("backend database error: stage=%s error=%v", stage, err)
+	text := fmt.Sprintf(
+		"⚠️ BACKEND DATABASE ERROR\n"+
+			"stage: %s\n"+
+			"error: %v\n"+
+			"time_utc: %s",
+		stage, err, now.Format(time.RFC3339),
+	)
+
+	alertCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if alertErr := bot.NewBotClient(botCfg.BaseURL, botCfg.InternalSecret).SendTextMessage(alertCtx, text); alertErr != nil {
+		log.Printf(
+			"failed to send backend database telegram alert: stage=%s original_error=%v alert_error=%v",
+			stage, err, alertErr,
+		)
+	}
 }
 
 func formatDurationSecondsExact(d time.Duration) string {

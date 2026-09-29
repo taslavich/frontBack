@@ -77,8 +77,17 @@ func (s *Service) Moderate(ctx context.Context, campaignID, decision string) (mo
 		return models.Campaign{}, httpx.BadRequest("decision must be approve or reject")
 	}
 
+	nightTracked, err := s.repo.IsNightAutoApprovedCampaign(ctx, campaignID)
+	if err != nil {
+		s.reportNightModerationError("manual_decision_lookup", campaignID, err)
+		return models.Campaign{}, fmt.Errorf("cannot check night moderation state: %w", err)
+	}
+
 	var oldStatus string
 	campaign, err := s.repo.UpdateLockedWithNightModeration(ctx, campaignID, func(current *models.Campaign, night *NightModerationState) error {
+		if night != nil {
+			nightTracked = true
+		}
 		before := cloneCampaignForComparison(*current)
 		oldStatus = before.Status
 
@@ -99,15 +108,26 @@ func (s *Service) Moderate(ctx context.Context, campaignID, decision string) (mo
 		return nil
 	})
 	if err != nil {
+		if nightTracked && !isExpectedModerationClientError(err) {
+			s.reportNightModerationError("manual_decision_persist", campaignID, err)
+		}
 		return models.Campaign{}, fmt.Errorf("cannot moderate campaign: %w", err)
 	}
 
 	if oldStatus != campaign.Status {
 		if err := s.notifyCampaignStatusChangeIfNeeded(ctx, campaign, oldStatus, campaign.Status); err != nil {
+			if nightTracked {
+				s.reportNightModerationError("manual_decision_status_notification", campaignID, err)
+			}
 			return models.Campaign{}, err
 		}
 	}
 	return campaign, nil
+}
+
+func isExpectedModerationClientError(err error) bool {
+	var httpErr httpx.HTTPError
+	return errors.As(err, &httpErr) && httpErr.Status >= 400 && httpErr.Status < 500
 }
 
 func applyModerationDecision(current *models.Campaign, decision string) error {

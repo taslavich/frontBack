@@ -25,6 +25,21 @@ func (r *Repository) RotateNightModerationWindow(ctx context.Context, windowStar
 	return err
 }
 
+func (r *Repository) IsNightAutoApprovedCampaign(ctx context.Context, campaignID string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM night_autoapproved_campaigns
+			WHERE campaign_id = $1
+		)
+	`, campaignID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check night auto-approved campaign: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *Repository) ListModerationCampaignIDs(ctx context.Context) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT campaign_id
