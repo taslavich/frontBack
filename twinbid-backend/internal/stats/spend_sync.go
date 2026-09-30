@@ -47,6 +47,9 @@ GROUP BY GROUPING SETS
     (win_cid)
 )
 HAVING notEmpty(entity_id)
-   AND isNotNull(toUUIDOrNull(entity_id))
+   AND match(
+       entity_id,
+       '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+   )
 ORDER BY entity_type, entity_id`, table), nil
 }

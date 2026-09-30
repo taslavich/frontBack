@@ -27,13 +27,15 @@ type Service struct {
 }
 
 type Result struct {
-	SourceRows              int
-	UserTotals              int
-	CampaignTotals          int
-	UpdatedUsers            int64
-	UpdatedCampaigns        int64
-	StoppedCampaigns        int64
-	ClickHouseQueryDuration time.Duration
+	SourceRows               int
+	UserTotals               int
+	CampaignTotals           int
+	UpdatedUsers             int64
+	UpdatedCampaigns         int64
+	StoppedCampaigns         int64
+	SkippedInvalidEntityRows int
+	InvalidEntityIDSamples   []string
+	ClickHouseQueryDuration  time.Duration
 }
 
 const updateUsersCumulativeSpendSQL = `
@@ -106,10 +108,12 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		return result, fmt.Errorf("query ClickHouse cumulative spend: %w", err)
 	}
 
-	userIDs, userAmounts, campaignIDs, campaignAmounts, err := splitTotals(totals)
+	userIDs, userAmounts, campaignIDs, campaignAmounts, skippedInvalidEntityRows, invalidEntityIDSamples, err := splitTotals(totals)
 	if err != nil {
 		return result, err
 	}
+	result.SkippedInvalidEntityRows = skippedInvalidEntityRows
+	result.InvalidEntityIDSamples = invalidEntityIDSamples
 
 	result.UserTotals = len(userIDs)
 	result.CampaignTotals = len(campaignIDs)
@@ -167,9 +171,11 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	return result, nil
 }
 
-func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []string, []string, error) {
+func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []string, []string, int, []string, error) {
 	userAmountsByID := make(map[string]string)
 	campaignAmountsByID := make(map[string]string)
+	skippedInvalidEntityRows := 0
+	invalidEntityIDSamples := make([]string, 0, 5)
 
 	for i, total := range totals {
 		entityType := strings.ToLower(strings.TrimSpace(total.EntityType))
@@ -177,11 +183,18 @@ func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []str
 		amount := strings.TrimSpace(total.Amount)
 
 		if _, err := uuid.Parse(entityID); err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid ClickHouse cumulative spend entity_id at row %d: %w", i, err)
+			skippedInvalidEntityRows++
+			if len(invalidEntityIDSamples) < 5 {
+				invalidEntityIDSamples = append(
+					invalidEntityIDSamples,
+					fmt.Sprintf("row=%d type=%q entity_id=%q", i, total.EntityType, total.EntityID),
+				)
+			}
+			continue
 		}
 		value, err := strconv.ParseFloat(amount, 64)
 		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-			return nil, nil, nil, nil, fmt.Errorf("invalid ClickHouse cumulative spend amount at row %d: %q", i, amount)
+			return nil, nil, nil, nil, skippedInvalidEntityRows, invalidEntityIDSamples, fmt.Errorf("invalid ClickHouse cumulative spend amount at row %d: %q", i, amount)
 		}
 
 		switch entityType {
@@ -190,13 +203,13 @@ func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []str
 		case "campaign":
 			campaignAmountsByID[entityID] = amount
 		default:
-			return nil, nil, nil, nil, fmt.Errorf("invalid ClickHouse cumulative spend entity_type at row %d: %q", i, total.EntityType)
+			return nil, nil, nil, nil, skippedInvalidEntityRows, invalidEntityIDSamples, fmt.Errorf("invalid ClickHouse cumulative spend entity_type at row %d: %q", i, total.EntityType)
 		}
 	}
 
 	userIDs, userAmounts := sortedTotals(userAmountsByID)
 	campaignIDs, campaignAmounts := sortedTotals(campaignAmountsByID)
-	return userIDs, userAmounts, campaignIDs, campaignAmounts, nil
+	return userIDs, userAmounts, campaignIDs, campaignAmounts, skippedInvalidEntityRows, invalidEntityIDSamples, nil
 }
 
 func sortedTotals(amountsByID map[string]string) ([]string, []string) {

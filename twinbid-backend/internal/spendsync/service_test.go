@@ -13,12 +13,15 @@ const (
 )
 
 func TestSplitTotals(t *testing.T) {
-	userIDs, userAmounts, campaignIDs, campaignAmounts, err := splitTotals([]stats.CumulativeSpendTotal{
+	userIDs, userAmounts, campaignIDs, campaignAmounts, skippedInvalidEntityRows, invalidEntityIDSamples, err := splitTotals([]stats.CumulativeSpendTotal{
 		{EntityType: "campaign", EntityID: campaignID, Amount: "4.9995"},
 		{EntityType: "user", EntityID: userID, Amount: "12.345678901234"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if skippedInvalidEntityRows != 0 || len(invalidEntityIDSamples) != 0 {
+		t.Fatalf("unexpected invalid entity IDs: skipped=%d samples=%v", skippedInvalidEntityRows, invalidEntityIDSamples)
 	}
 	if len(userIDs) != 1 || userIDs[0] != userID || userAmounts[0] != "12.345678901234" {
 		t.Fatalf("unexpected user totals: ids=%v amounts=%v", userIDs, userAmounts)
@@ -31,14 +34,38 @@ func TestSplitTotals(t *testing.T) {
 func TestSplitTotalsRejectsInvalidRows(t *testing.T) {
 	tests := []stats.CumulativeSpendTotal{
 		{EntityType: "other", EntityID: userID, Amount: "1"},
-		{EntityType: "user", EntityID: "not-a-uuid", Amount: "1"},
 		{EntityType: "user", EntityID: userID, Amount: "NaN"},
 		{EntityType: "campaign", EntityID: campaignID, Amount: "-1"},
 	}
 	for _, total := range tests {
-		if _, _, _, _, err := splitTotals([]stats.CumulativeSpendTotal{total}); err == nil {
+		if _, _, _, _, _, _, err := splitTotals([]stats.CumulativeSpendTotal{total}); err == nil {
 			t.Fatalf("expected error for %#v", total)
 		}
+	}
+}
+
+func TestSplitTotalsSkipsInvalidEntityIDWithoutBlockingValidTotals(t *testing.T) {
+	const poisonCampaignID = "AlNDDRoGHQwYWwgCJSptJywnbHBuejF_"
+
+	userIDs, userAmounts, campaignIDs, campaignAmounts, skippedInvalidEntityRows, invalidEntityIDSamples, err := splitTotals([]stats.CumulativeSpendTotal{
+		{EntityType: "campaign", EntityID: poisonCampaignID, Amount: "0.0004216000060551"},
+		{EntityType: "user", EntityID: userID, Amount: "12.5"},
+		{EntityType: "campaign", EntityID: campaignID, Amount: "4.5"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if skippedInvalidEntityRows != 1 {
+		t.Fatalf("expected one skipped invalid entity row, got %d", skippedInvalidEntityRows)
+	}
+	if len(invalidEntityIDSamples) != 1 || !strings.Contains(invalidEntityIDSamples[0], poisonCampaignID) {
+		t.Fatalf("unexpected invalid entity ID samples: %v", invalidEntityIDSamples)
+	}
+	if len(userIDs) != 1 || userIDs[0] != userID || userAmounts[0] != "12.5" {
+		t.Fatalf("valid user total was not preserved: ids=%v amounts=%v", userIDs, userAmounts)
+	}
+	if len(campaignIDs) != 1 || campaignIDs[0] != campaignID || campaignAmounts[0] != "4.5" {
+		t.Fatalf("valid campaign total was not preserved: ids=%v amounts=%v", campaignIDs, campaignAmounts)
 	}
 }
 

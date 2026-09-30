@@ -182,6 +182,39 @@ func sendBackendDatabaseAlert(botCfg config.BotConfig, stage string, err error) 
 	}
 }
 
+func sendStatsSpendSyncInvalidEntityAlert(botCfg config.BotConfig, result spendsync.Result) {
+	if result.SkippedInvalidEntityRows <= 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	log.Printf(
+		"stats spend sync data error: skipped_invalid_entity_rows=%d samples=%v",
+		result.SkippedInvalidEntityRows,
+		result.InvalidEntityIDSamples,
+	)
+	text := fmt.Sprintf(
+		"⚠️ STATS SPEND SYNC DATA ERROR\n"+
+			"stage: invalid_clickhouse_entity_id\n"+
+			"skipped_rows: %d\n"+
+			"samples: %v\n"+
+			"time_utc: %s",
+		result.SkippedInvalidEntityRows,
+		result.InvalidEntityIDSamples,
+		now.Format(time.RFC3339),
+	)
+
+	alertCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if alertErr := bot.NewBotClient(botCfg.BaseURL, botCfg.InternalSecret).SendTextMessage(alertCtx, text); alertErr != nil {
+		log.Printf(
+			"failed to send stats spend sync data telegram alert: skipped_invalid_entity_rows=%d alert_error=%v",
+			result.SkippedInvalidEntityRows,
+			alertErr,
+		)
+	}
+}
+
 func formatDurationSecondsExact(d time.Duration) string {
 	if d < 0 {
 		d = -d
@@ -217,8 +250,11 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			)
 			return
 		}
+		if result.SkippedInvalidEntityRows > 0 {
+			sendStatsSpendSyncInvalidEntityAlert(cfg.Bot, result)
+		}
 		log.Printf(
-			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d",
+			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d",
 			duration,
 			formatDurationSecondsExact(result.ClickHouseQueryDuration),
 			result.SourceRows,
@@ -227,6 +263,7 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			result.UpdatedUsers,
 			result.UpdatedCampaigns,
 			result.StoppedCampaigns,
+			result.SkippedInvalidEntityRows,
 		)
 	}
 

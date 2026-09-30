@@ -11,6 +11,17 @@ func TestBuildCumulativeSpendQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	if strings.Contains(query, "toUUIDOrNull(entity_id)") {
+		t.Fatalf("cumulative spend query must not use ClickHouse permissive UUID conversion:\n%s", query)
+	}
+	for _, fragment := range []string{
+		"match(",
+		"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("cumulative spend query missing strict UUID filter %q:\n%s", fragment, query)
+		}
+	}
 	for _, fragment := range []string{
 		"FROM ads.agg_stats",
 		"GROUP BY GROUPING SETS",
