@@ -23,13 +23,15 @@ import (
 const invoiceLifetime = time.Hour
 
 type Service struct {
-	repo       *Repository
-	promoSvc   *promocodes.Service
-	promoRepo  *promocodes.Repository
-	profile    *profile.Repository
-	botCfg     config.BotConfig
-	profileSvc *profile.Service
-	providers  map[string]payments.InvoiceProvider
+	repo                   *Repository
+	promoSvc               *promocodes.Service
+	promoRepo              *promocodes.Repository
+	profile                *profile.Repository
+	botCfg                 config.BotConfig
+	profileSvc             *profile.Service
+	providers              map[string]payments.InvoiceProvider
+	staticWalletVerifier   StaticWalletVerifier
+	staticWalletRetryDelay time.Duration
 }
 
 func NewService(
@@ -161,6 +163,14 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 
 	if provider == nil {
 		if created.Status == models.TopupPending && created.TransactionHash != nil && strings.TrimSpace(*created.TransactionHash) != "" {
+			if s.StaticWalletAutoApprovalEnabled() {
+				checked, state, checkErr := s.verifyAndMaybeCreditStaticWallet(ctx, created, s.staticWalletRetryDelay)
+				if checkErr != nil {
+					log.Printf("TronScan immediate static-wallet verification error: topup_id=%s error=%v", created.ID, checkErr)
+				} else if state == "verified" && checked.Status == models.TopupApproved {
+					return checked, nil
+				}
+			}
 			if err := s.sendPaymentModeration(ctx, created); err != nil {
 				return models.UserTransaction{}, err
 			}
@@ -250,6 +260,14 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 	updated, err := s.repo.SubmitStaticHash(ctx, userID, id, txHash)
 	if err != nil {
 		return models.UserTransaction{}, err
+	}
+	if s.StaticWalletAutoApprovalEnabled() {
+		checked, state, checkErr := s.verifyAndMaybeCreditStaticWallet(ctx, updated, s.staticWalletRetryDelay)
+		if checkErr != nil {
+			log.Printf("TronScan immediate static-wallet verification error: topup_id=%s error=%v", updated.ID, checkErr)
+		} else if state == "verified" && checked.Status == models.TopupApproved {
+			return checked, nil
+		}
 	}
 	if wasSubmitted {
 		return updated, nil

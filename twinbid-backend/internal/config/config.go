@@ -22,6 +22,7 @@ type Config struct {
 	POPRecovery      POPRecoveryConfig
 	PassimPay        PassimPayConfig
 	Cryptomus        CryptomusConfig
+	TronScan         TronScanConfig
 	Bot              BotConfig
 	PublicAPIBaseURL string `env:"PUBLIC_API_BASE_URL" env-default:"http://localhost:8080"`
 
@@ -113,6 +114,19 @@ type CryptomusConfig struct {
 	ReconcileBatchSize    int           `env:"CRYPTOMUS_RECONCILE_BATCH_SIZE" env-default:"20"`
 	ReconcileRequestDelay time.Duration `env:"CRYPTOMUS_RECONCILE_REQUEST_DELAY" env-default:"150ms"`
 	ReconcileRetryDelay   time.Duration `env:"CRYPTOMUS_RECONCILE_RETRY_DELAY" env-default:"5m"`
+}
+
+type TronScanConfig struct {
+	BaseURL               string        `env:"TRONSCAN_BASE_URL" env-default:"https://apilist.tronscanapi.com"`
+	APIKey                string        `env:"TRONSCAN_API_KEY" env-default:""`
+	WalletAddress         string        `env:"TRONSCAN_WALLET_ADDRESS" env-default:"TJr26CGefYQAQ5ryrxETrQPeLYdzmz52ad"`
+	USDTContract          string        `env:"TRONSCAN_USDT_CONTRACT" env-default:"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"`
+	Timeout               time.Duration `env:"TRONSCAN_TIMEOUT" env-default:"5s"`
+	ReconcileInterval     time.Duration `env:"TRONSCAN_RECONCILE_INTERVAL" env-default:"15s"`
+	ReconcileBatchSize    int           `env:"TRONSCAN_RECONCILE_BATCH_SIZE" env-default:"50"`
+	ReconcileRequestDelay time.Duration `env:"TRONSCAN_RECONCILE_REQUEST_DELAY" env-default:"100ms"`
+	ReconcileRetryDelay   time.Duration `env:"TRONSCAN_RECONCILE_RETRY_DELAY" env-default:"15s"`
+	MinConfirmations      int64         `env:"TRONSCAN_MIN_CONFIRMATIONS" env-default:"1"`
 }
 
 type S3Config struct {

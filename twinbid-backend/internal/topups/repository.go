@@ -392,6 +392,74 @@ func (r *Repository) ListPendingInvoices(ctx context.Context, channel string, li
 	return out, rows.Err()
 }
 
+func (r *Repository) ListPendingStaticWallets(ctx context.Context, limit int) ([]models.UserTransaction, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	rows, err := r.db.QueryContext(ctx, selectTx+`
+		WHERE payment_channel='static_wallet'
+		  AND UPPER(TRIM(payment_method))='USDT TRC20'
+		  AND credited_at IS NULL
+		  AND status='pending'
+		  AND transaction_hash IS NOT NULL
+		  AND transaction_hash<>''
+		  AND COALESCE(provider_status,'') NOT IN ('tronscan_invalid','tronscan_duplicate')
+		  AND (provider_next_check_at IS NULL OR provider_next_check_at <= NOW())
+		ORDER BY COALESCE(provider_next_check_at, updated_at) ASC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []models.UserTransaction
+	for rows.Next() {
+		item, err := scanTx(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) MarkStaticWalletVerification(ctx context.Context, topupID, status string, payload json.RawMessage, message string, nextCheckAt *time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE user_transactions
+		SET provider_status=NULLIF($2,''),
+			provider_payload=COALESCE($3, provider_payload),
+			provider_check_attempts=provider_check_attempts+1,
+			provider_next_check_at=$4,
+			provider_last_error=NULLIF($5,''),
+			updated_at=NOW()
+		WHERE id=$1
+		  AND payment_channel='static_wallet'
+		  AND status='pending'
+		  AND credited_at IS NULL
+	`, topupID, status, nullableJSON(payload), nextCheckAt, message)
+	return err
+}
+
+func (r *Repository) LockStaticWalletHashTx(ctx context.Context, tx *sql.Tx, txHash string) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "static-wallet:"+strings.TrimSpace(txHash))
+	return err
+}
+
+func (r *Repository) HasOtherTopupWithHashTx(ctx context.Context, tx *sql.Tx, topupID, txHash string) (bool, error) {
+	var exists bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM user_transactions
+			WHERE transaction_hash=$2 AND id<>$1
+		)
+	`, topupID, strings.TrimSpace(txHash)).Scan(&exists)
+	return exists, err
+}
+
 func (r *Repository) InsertWebhookEvent(ctx context.Context, provider, orderID, signature string, state ProviderState, processingError string) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO payment_webhook_events (

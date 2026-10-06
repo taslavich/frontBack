@@ -109,3 +109,13 @@ func TestResolvePaymentSelectionKeepsExplicitStaticWallet(t *testing.T) {
 		t.Fatalf("unexpected static-wallet selection: channel=%q provider=%v", channel, provider)
 	}
 }
+
+func TestUSDTMicroAmount(t *testing.T) {
+	got, err := usdtMicroAmount(100.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != "100250000" {
+		t.Fatalf("micro amount=%s want=100250000", got.String())
+	}
+}

@@ -28,6 +28,7 @@ import (
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
 	"twinbid-backend/internal/topups"
+	"twinbid-backend/internal/tronscan"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -157,6 +158,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Timeout:           cfg.Cryptomus.Timeout,
 	})
 
+	tronScanClient := tronscan.NewClient(tronscan.Config{
+		BaseURL:          cfg.TronScan.BaseURL,
+		APIKey:           cfg.TronScan.APIKey,
+		WalletAddress:    cfg.TronScan.WalletAddress,
+		USDTContract:     cfg.TronScan.USDTContract,
+		Timeout:          cfg.TronScan.Timeout,
+		MinConfirmations: cfg.TronScan.MinConfirmations,
+	})
+
 	topupSvc := topups.NewService(
 		topups.NewRepository(pg),
 		promoSvc,
@@ -167,6 +177,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		passimPayClient,
 		cryptomusClient,
 	)
+	topupSvc.ConfigureStaticWalletAutoApproval(tronScanClient, cfg.TronScan.ReconcileRetryDelay)
+	if tronScanClient.Enabled() {
+		log.Printf("TronScan static-wallet auto-approval enabled: wallet=%s min_confirmations=%d", cfg.TronScan.WalletAddress, cfg.TronScan.MinConfirmations)
+	} else {
+		log.Printf("TronScan static-wallet auto-approval disabled: TRONSCAN_API_KEY is empty")
+	}
 	topupHandler := topups.NewHandler(topupSvc, cfg.Bot.InternalSecret, cfg.Bot.AdminUserID)
 
 	statsHandler := stats.NewHandler(statsSvc)
@@ -181,6 +197,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runPOPRecoveryReconcileTicker(ctx, cfg, recoveryReconciler)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
+	go runTronScanReconcileTicker(ctx, cfg.TronScan, topupSvc)
 	go runInvoiceExpiryTicker(ctx, topupSvc)
 	go runNoBudgetNotificationTicker(ctx, pg, cfg, campaignSvc)
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
@@ -555,6 +572,46 @@ func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc 
 				log.Printf("campaign waiting ticker rows iteration error: %v", err)
 			}
 			_ = rows.Close()
+		}
+	}
+}
+
+func runTronScanReconcileTicker(ctx context.Context, cfg config.TronScanConfig, svc *topups.Service) {
+	if !svc.StaticWalletAutoApprovalEnabled() {
+		return
+	}
+	interval := cfg.ReconcileInterval
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+
+	run := func() {
+		result, err := svc.ReconcilePendingStaticWallets(
+			ctx,
+			cfg.ReconcileBatchSize,
+			cfg.ReconcileRequestDelay,
+			cfg.ReconcileRetryDelay,
+		)
+		if err != nil {
+			log.Printf("TronScan static-wallet reconciliation error: checked=%d approved=%d pending=%d invalid=%d errors=%d error=%v", result.Checked, result.Approved, result.Pending, result.Invalid, result.Errors, err)
+			return
+		}
+		if result.Checked > 0 {
+			log.Printf("TronScan static-wallet reconciliation completed: checked=%d approved=%d pending=%d invalid=%d errors=%d", result.Checked, result.Approved, result.Pending, result.Invalid, result.Errors)
+		}
+	}
+
+	// Reconcile hashes that arrived while the API was stopped before waiting for
+	// the first interval.
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
 		}
 	}
 }
