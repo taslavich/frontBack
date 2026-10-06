@@ -79,6 +79,7 @@ type PaymentModerationRequest struct {
 	Currency             string  `json:"currency"`
 	PromocodeID          string  `json:"promocode_id,omitempty"`
 	TransactionHash      string  `json:"transaction_hash"`
+	AutoApproved         bool    `json:"auto_approved,omitempty"`
 }
 
 func (b *BotClient) SendCampaignModeration(ctx context.Context, req CampaignModerationRequest) error {

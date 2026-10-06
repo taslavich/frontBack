@@ -122,7 +122,7 @@ type TronScanConfig struct {
 	WalletAddress         string        `env:"TRONSCAN_WALLET_ADDRESS" env-default:"TJr26CGefYQAQ5ryrxETrQPeLYdzmz52ad"`
 	USDTContract          string        `env:"TRONSCAN_USDT_CONTRACT" env-default:"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"`
 	Timeout               time.Duration `env:"TRONSCAN_TIMEOUT" env-default:"5s"`
-	ReconcileInterval     time.Duration `env:"TRONSCAN_RECONCILE_INTERVAL" env-default:"15s"`
+	ReconcileInterval     time.Duration `env:"TRONSCAN_RECONCILE_INTERVAL" env-default:"30m"`
 	ReconcileBatchSize    int           `env:"TRONSCAN_RECONCILE_BATCH_SIZE" env-default:"50"`
 	ReconcileRequestDelay time.Duration `env:"TRONSCAN_RECONCILE_REQUEST_DELAY" env-default:"100ms"`
 	ReconcileRetryDelay   time.Duration `env:"TRONSCAN_RECONCILE_RETRY_DELAY" env-default:"15s"`

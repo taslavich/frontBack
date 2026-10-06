@@ -576,13 +576,18 @@ func runWaitingCampaignStartTicker(ctx context.Context, pg *sql.DB, campaignSvc 
 	}
 }
 
-func runTronScanReconcileTicker(ctx context.Context, cfg config.TronScanConfig, svc *topups.Service) {
+type staticWalletReconciler interface {
+	StaticWalletAutoApprovalEnabled() bool
+	ReconcilePendingStaticWallets(context.Context, int, time.Duration, time.Duration) (topups.StaticWalletReconcileResult, error)
+}
+
+func runTronScanReconcileTicker(ctx context.Context, cfg config.TronScanConfig, svc staticWalletReconciler) {
 	if !svc.StaticWalletAutoApprovalEnabled() {
 		return
 	}
 	interval := cfg.ReconcileInterval
 	if interval <= 0 {
-		interval = 15 * time.Second
+		interval = 30 * time.Minute
 	}
 
 	run := func() {

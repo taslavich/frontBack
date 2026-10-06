@@ -163,13 +163,12 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 
 	if provider == nil {
 		if created.Status == models.TopupPending && created.TransactionHash != nil && strings.TrimSpace(*created.TransactionHash) != "" {
-			if s.StaticWalletAutoApprovalEnabled() {
-				checked, state, checkErr := s.verifyAndMaybeCreditStaticWallet(ctx, created, s.staticWalletRetryDelay)
-				if checkErr != nil {
-					log.Printf("TronScan immediate static-wallet verification error: topup_id=%s error=%v", created.ID, checkErr)
-				} else if state == "verified" && checked.Status == models.TopupApproved {
-					return checked, nil
-				}
+			created, err = s.attemptImmediateStaticWalletAutoApproval(ctx, created)
+			if err != nil {
+				return models.UserTransaction{}, err
+			}
+			if created.Status != models.TopupPending || created.CreditedAt != nil {
+				return created, nil
 			}
 			if err := s.sendPaymentModeration(ctx, created); err != nil {
 				return models.UserTransaction{}, err
@@ -261,13 +260,12 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 	if err != nil {
 		return models.UserTransaction{}, err
 	}
-	if s.StaticWalletAutoApprovalEnabled() {
-		checked, state, checkErr := s.verifyAndMaybeCreditStaticWallet(ctx, updated, s.staticWalletRetryDelay)
-		if checkErr != nil {
-			log.Printf("TronScan immediate static-wallet verification error: topup_id=%s error=%v", updated.ID, checkErr)
-		} else if state == "verified" && checked.Status == models.TopupApproved {
-			return checked, nil
-		}
+	updated, err = s.attemptImmediateStaticWalletAutoApproval(ctx, updated)
+	if err != nil {
+		return models.UserTransaction{}, err
+	}
+	if updated.Status != models.TopupPending || updated.CreditedAt != nil {
+		return updated, nil
 	}
 	if wasSubmitted {
 		return updated, nil
@@ -288,6 +286,9 @@ func (s *Service) Approve(ctx context.Context, userID, id string) (models.UserTr
 	current, err := s.repo.LockByUserAndIDTx(ctx, tx, userID, id)
 	if err != nil {
 		return models.UserTransaction{}, err
+	}
+	if current.Status == models.TopupApproved || current.CreditedAt != nil {
+		return models.UserTransaction{}, httpx.Conflict("topup is already approved")
 	}
 	if current.PaymentChannel != PaymentChannelStaticWallet {
 		return models.UserTransaction{}, httpx.BadRequest("only static-wallet topups can be approved manually")
@@ -569,6 +570,10 @@ func validatePromocode(promo models.Promocode) error {
 }
 
 func (s *Service) sendPaymentModeration(ctx context.Context, topup models.UserTransaction) error {
+	return s.sendPaymentNotification(ctx, topup, false)
+}
+
+func (s *Service) sendPaymentNotification(ctx context.Context, topup models.UserTransaction, autoApproved bool) error {
 	user, err := s.profile.Get(ctx, topup.UserID)
 	if err != nil {
 		return fmt.Errorf("get profile: %w", err)
@@ -600,6 +605,7 @@ func (s *Service) sendPaymentModeration(ctx context.Context, topup models.UserTr
 		Currency:             topup.Currency,
 		PromocodeID:          promocodeID,
 		TransactionHash:      txHash,
+		AutoApproved:         autoApproved,
 	}); err != nil {
 		return fmt.Errorf("send payment moderation: %w", err)
 	}

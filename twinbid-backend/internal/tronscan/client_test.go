@@ -47,6 +47,14 @@ func TestVerifyUSDTTransfer(t *testing.T) {
 			wantState:  VerificationInvalid,
 			wantReason: "configured wallet",
 		},
+		{
+			name: "wrong USDT contract", body: fmt.Sprintf(`{"hash":"abc","confirmed":true,"revert":false,"confirmations":4,"contractRet":"SUCCESS","trc20TransferInfo":[{"to_address":%q,"contract_address":"TFakeToken","amount_str":"100000000","decimals":6,"type":"Transfer","status":0,"tokenType":"trc20"}]}`, wallet),
+			expected: 100000000, wantState: VerificationInvalid, wantReason: "configured wallet",
+		},
+		{
+			name: "reverted transaction", body: fmt.Sprintf(`{"hash":"abc","confirmed":true,"revert":true,"confirmations":4,"contractRet":"SUCCESS","trc20TransferInfo":[{"to_address":%q,"contract_address":%q,"amount_str":"100000000","decimals":6,"type":"Transfer","status":0,"tokenType":"trc20"}]}`, wallet, contract),
+			expected: 100000000, wantState: VerificationInvalid, wantReason: "reverted",
+		},
 	}
 
 	for _, tt := range tests {
