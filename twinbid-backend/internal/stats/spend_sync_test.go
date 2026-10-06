@@ -43,3 +43,31 @@ func TestBuildCumulativeSpendQueryRejectsUnsafeTable(t *testing.T) {
 		t.Fatal("expected unsafe table name to be rejected")
 	}
 }
+
+func TestBuildPOPRecoveredSpendQuery(t *testing.T) {
+	query, err := buildPOPRecoveredSpendQuery("ads.agg_stats")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"FROM ads.agg_stats",
+		"sum(pop_recovered_spend)",
+		"trimBoth(win_user_id) AS user_id",
+		"trimBoth(win_cid) AS campaign_id",
+		"pop_recovered_spend > 0",
+		"GROUP BY",
+		"win_user_id",
+		"win_cid",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("POP recovery query does not contain %q:\n%s", fragment, query)
+		}
+	}
+}
+
+func TestBuildPOPRecoveredSpendQueryRejectsUnsafeTable(t *testing.T) {
+	if _, err := buildPOPRecoveredSpendQuery("agg_stats; DROP TABLE users"); err == nil {
+		t.Fatal("expected unsafe table name to be rejected")
+	}
+}

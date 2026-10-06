@@ -141,6 +141,49 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS os_version JSONB NOT NULL DEFAULT '{}'::jsonb;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS traffic_reset_version BIGINT NOT NULL DEFAULT 0;`,
 		`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS antiperekrut_max_traffic_percent NUMERIC(5,2) NOT NULL DEFAULT 100.00 CHECK (antiperekrut_max_traffic_percent >= 0.01 AND antiperekrut_max_traffic_percent <= 100.00);`,
+		`CREATE TABLE IF NOT EXISTS pop_recovery_reconciliation_state (
+			id SMALLINT PRIMARY KEY,
+			bootstrap_completed BOOLEAN NOT NULL DEFAULT false,
+			bootstrap_completed_at TIMESTAMP WITH TIME ZONE,
+			last_error TEXT,
+			last_error_at TIMESTAMP WITH TIME ZONE,
+			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			CONSTRAINT pop_recovery_reconciliation_state_singleton CHECK (id = 1)
+		);`,
+		`INSERT INTO pop_recovery_reconciliation_state (id, bootstrap_completed)
+		 VALUES (1, false)
+		 ON CONFLICT (id) DO NOTHING;`,
+		`CREATE TABLE IF NOT EXISTS pop_recovery_cursors (
+			campaign_id UUID PRIMARY KEY,
+			user_id UUID NOT NULL,
+			source_total NUMERIC(30,12) NOT NULL DEFAULT 0 CHECK (source_total >= 0),
+			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_pop_recovery_cursors_user_id
+		 ON pop_recovery_cursors(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pop_recovery_cursors_positive
+		 ON pop_recovery_cursors(campaign_id)
+		 WHERE source_total > 0;`,
+		`CREATE TABLE IF NOT EXISTS pop_recovery_adjustments (
+			adjustment_id UUID PRIMARY KEY,
+			user_id UUID NOT NULL,
+			campaign_id UUID NOT NULL,
+			delta NUMERIC(30,12) NOT NULL CHECK (delta > 0),
+			source_before NUMERIC(30,12) NOT NULL CHECK (source_before >= 0),
+			source_after NUMERIC(30,12) NOT NULL CHECK (source_after >= source_before),
+			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','applied')),
+			attempt_count BIGINT NOT NULL DEFAULT 0,
+			last_attempt_at TIMESTAMP WITH TIME ZONE,
+			last_error TEXT,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			applied_at TIMESTAMP WITH TIME ZONE,
+			CONSTRAINT pop_recovery_adjustments_source_range CHECK (source_after > source_before),
+			CONSTRAINT pop_recovery_adjustments_delta_matches_source CHECK (delta = source_after - source_before),
+			CONSTRAINT pop_recovery_adjustments_campaign_source_unique UNIQUE (campaign_id, source_after)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_pop_recovery_adjustments_pending
+		 ON pop_recovery_adjustments(created_at, adjustment_id)
+		 WHERE status = 'pending';`,
 		`CREATE TABLE IF NOT EXISTS night_autoapproved_campaigns (
 			campaign_id UUID PRIMARY KEY REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
 			window_start TIMESTAMP WITH TIME ZONE NOT NULL,

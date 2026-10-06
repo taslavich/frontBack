@@ -1,6 +1,7 @@
 package spendsync
 
 import (
+	"math/big"
 	"strings"
 	"testing"
 
@@ -112,5 +113,48 @@ func TestCampaignSpendUpdateAndNoBudgetTransitionAreSeparateStatements(t *testin
 	}
 	if strings.Contains(update, "status = 'no_budget'") {
 		t.Fatalf("campaign status should be evaluated after all cumulative spend rows are updated: %s", updateCampaignsCumulativeSpendSQL)
+	}
+}
+
+func TestNormalizeRecoveryTotalsSortsAndPreservesDecimalText(t *testing.T) {
+	totals, err := normalizeRecoveryTotals([]stats.POPRecoveredSpendTotal{
+		{UserID: userID, CampaignID: "33333333-3333-4333-8333-333333333333", Amount: "2.500000000001"},
+		{UserID: userID, CampaignID: campaignID, Amount: "0"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(totals) != 2 {
+		t.Fatalf("unexpected total count: %d", len(totals))
+	}
+	if totals[0].CampaignID != campaignID || totals[0].Amount != "0" {
+		t.Fatalf("unexpected first recovery total: %#v", totals[0])
+	}
+	if totals[1].Amount != "2.500000000001" {
+		t.Fatalf("decimal text changed unexpectedly: %#v", totals[1])
+	}
+}
+
+func TestNormalizeRecoveryTotalsRejectsDuplicateCampaignAndInvalidAmount(t *testing.T) {
+	if _, err := normalizeRecoveryTotals([]stats.POPRecoveredSpendTotal{
+		{UserID: userID, CampaignID: campaignID, Amount: "1"},
+		{UserID: userID, CampaignID: campaignID, Amount: "2"},
+	}); err == nil {
+		t.Fatal("expected duplicate campaign to be rejected")
+	}
+	if _, err := normalizeRecoveryTotals([]stats.POPRecoveredSpendTotal{
+		{UserID: userID, CampaignID: campaignID, Amount: "-0.01"},
+	}); err == nil {
+		t.Fatal("expected negative recovery total to be rejected")
+	}
+}
+
+func TestDecimalStringKeepsTwelveDecimalRecoveryPrecision(t *testing.T) {
+	value, ok := new(big.Rat).SetString("2.500000000001")
+	if !ok {
+		t.Fatal("cannot parse test decimal")
+	}
+	if got := decimalString(value); got != "2.500000000001" {
+		t.Fatalf("unexpected decimal: %q", got)
 	}
 }

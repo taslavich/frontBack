@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"twinbid-backend/internal/auth"
@@ -19,6 +21,7 @@ import (
 	"twinbid-backend/internal/partners"
 	"twinbid-backend/internal/passimpay"
 	"twinbid-backend/internal/payments"
+	"twinbid-backend/internal/poprecovery"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
 	"twinbid-backend/internal/spendsync"
@@ -28,13 +31,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/go-redis/v9"
 )
 
 type App struct {
-	Cfg      config.Config
-	Postgres *sql.DB
-	Stats    *stats.Service
-	Router   http.Handler
+	Cfg           config.Config
+	Postgres      *sql.DB
+	Stats         *stats.Service
+	RecoveryRedis *redis.Client
+	Router        http.Handler
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
@@ -59,6 +64,29 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("clickhouse: %w", err)
 	}
 	log.Println("✅ Connected to ClickHouse")
+
+	if cfg.POPRecovery.RedisDB != 5 {
+		_ = statsSvc.Close()
+		_ = pg.Close()
+		return nil, fmt.Errorf("REDIS_DB_ADV_RUNTIME=%d is invalid: POP recovery reconciliation requires Redis DB 5", cfg.POPRecovery.RedisDB)
+	}
+	if strings.TrimSpace(cfg.POPRecovery.RedisAddr) == "" {
+		_ = statsSvc.Close()
+		_ = pg.Close()
+		return nil, fmt.Errorf("REDIS_ADV_ADDR is required for POP recovery reconciliation")
+	}
+	recoveryRedis := redis.NewClient(&redis.Options{
+		Addr:     strings.TrimSpace(cfg.POPRecovery.RedisAddr),
+		Password: cfg.POPRecovery.RedisPassword,
+		DB:       cfg.POPRecovery.RedisDB,
+	})
+	redisPingCtx, redisPingCancel := context.WithTimeout(ctx, 2*time.Second)
+	if err := recoveryRedis.Ping(redisPingCtx).Err(); err != nil {
+		log.Printf("POP recovery Redis unavailable at startup; reconciliation will retry in background: %v", err)
+	} else {
+		log.Printf("POP recovery Redis ready: db=%d", cfg.POPRecovery.RedisDB)
+	}
+	redisPingCancel()
 
 	authRepo := auth.NewRepository(pg)
 	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
@@ -144,7 +172,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	statsHandler := stats.NewHandler(statsSvc)
 	advertiserStatsHandler := stats.NewAdvertiserAPIHandler(pg, statsSvc)
 	spendSyncSvc := spendsync.NewService(pg, statsSvc)
+	recoveryReconciler := poprecovery.NewReconciler(
+		pg,
+		poprecovery.NewRedisApplier(recoveryRedis, cfg.POPRecovery.MarkerPrefix, cfg.POPRecovery.RedisTxRetries),
+		cfg.POPRecovery.BatchSize,
+	)
 	go runStatsSpendSyncTicker(ctx, cfg, spendSyncSvc)
+	go runPOPRecoveryReconcileTicker(ctx, cfg, recoveryReconciler)
 	go runPassimPayReconcileTicker(ctx, cfg.PassimPay, topupSvc)
 	go runCryptomusReconcileTicker(ctx, cfg.Cryptomus, topupSvc)
 	go runInvoiceExpiryTicker(ctx, topupSvc)
@@ -154,7 +188,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runNightCampaignAutoApproval(ctx, campaignSvc)
 
 	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler)
-	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, Router: r}, nil
+	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, RecoveryRedis: recoveryRedis, Router: r}, nil
 }
 
 func sendBackendDatabaseAlert(botCfg config.BotConfig, stage string, err error) {
@@ -215,6 +249,25 @@ func sendStatsSpendSyncInvalidEntityAlert(botCfg config.BotConfig, result spends
 	}
 }
 
+func sendPOPRecoveryAlert(botCfg config.BotConfig, stage string, err error) {
+	if err == nil {
+		return
+	}
+	log.Printf("POP recovery reconciliation error: stage=%s error=%v", stage, err)
+	text := fmt.Sprintf(
+		"⚠️ POP RECOVERY RECONCILIATION ERROR\n"+
+			"stage: %s\n"+
+			"error: %v\n"+
+			"time_utc: %s",
+		stage, err, time.Now().UTC().Format(time.RFC3339),
+	)
+	alertCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if alertErr := bot.NewBotClient(botCfg.BaseURL, botCfg.InternalSecret).SendTextMessage(alertCtx, text); alertErr != nil {
+		log.Printf("failed to send POP recovery telegram alert: stage=%s original_error=%v alert_error=%v", stage, err, alertErr)
+	}
+}
+
 func formatDurationSecondsExact(d time.Duration) string {
 	if d < 0 {
 		d = -d
@@ -233,6 +286,7 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 	if timeout <= 0 {
 		timeout = interval
 	}
+	lastRecoveryAnomaly := ""
 
 	run := func() {
 		startedAt := time.Now()
@@ -254,7 +308,7 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			sendStatsSpendSyncInvalidEntityAlert(cfg.Bot, result)
 		}
 		log.Printf(
-			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d",
+			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d pop_recovery_source_rows=%d pop_recovery_adjustments_created=%d pop_recovery_bootstrap_completed=%t pop_recovery_anomalies=%d",
 			duration,
 			formatDurationSecondsExact(result.ClickHouseQueryDuration),
 			result.SourceRows,
@@ -264,10 +318,89 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			result.UpdatedCampaigns,
 			result.StoppedCampaigns,
 			result.SkippedInvalidEntityRows,
+			result.RecoverySourceRows,
+			result.RecoveryAdjustmentsCreated,
+			result.RecoveryBootstrapCompleted,
+			len(result.RecoveryAnomalies),
 		)
+
+		if len(result.RecoveryAnomalies) == 0 {
+			lastRecoveryAnomaly = ""
+			return
+		}
+		anomaly := result.RecoveryAnomalies[0]
+		message := fmt.Sprintf(
+			"user_id=%s campaign_id=%s source_total=%s cursor_total=%s reason=%s additional=%d",
+			anomaly.UserID, anomaly.CampaignID, anomaly.SourceTotal, anomaly.CursorTotal, anomaly.Reason, len(result.RecoveryAnomalies)-1,
+		)
+		log.Printf("POP recovery cumulative anomaly: %s", message)
+		if message != lastRecoveryAnomaly {
+			sendPOPRecoveryAlert(cfg.Bot, "clickhouse_total_below_cursor", errors.New(message))
+			lastRecoveryAnomaly = message
+		}
 	}
 
 	// Synchronize immediately after startup, then continue at the configured interval.
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
+}
+
+func runPOPRecoveryReconcileTicker(ctx context.Context, cfg config.Config, reconciler *poprecovery.Reconciler) {
+	interval := cfg.POPRecovery.ReconcileInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	timeout := cfg.POPRecovery.ReconcileTimeout
+	if timeout <= 0 {
+		timeout = interval
+	}
+
+	var lastBootstrap *bool
+	lastHealthLog := time.Time{}
+	lastAlertError := ""
+	run := func() {
+		runCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		result, err := reconciler.RunOnce(runCtx)
+		if err != nil {
+			log.Printf("POP recovery reconciliation worker error: %v", err)
+			if err.Error() != lastAlertError {
+				sendPOPRecoveryAlert(cfg.Bot, "redis_adjustment_worker", err)
+				lastAlertError = err.Error()
+			}
+			return
+		}
+		lastAlertError = ""
+
+		now := time.Now().UTC()
+		bootstrapChanged := lastBootstrap == nil || *lastBootstrap != result.Health.BootstrapCompleted
+		if bootstrapChanged || lastHealthLog.IsZero() || now.Sub(lastHealthLog) >= time.Minute || result.PendingLoaded > 0 {
+			state := "waiting"
+			if result.Health.BootstrapCompleted {
+				state = "complete"
+			}
+			log.Printf(
+				"POP recovery reconciliation health: bootstrap=%s %s pending_loaded=%d applied=%d already_marked=%d",
+				state, poprecovery.FormatHealthLog(result.Health), result.PendingLoaded, result.Applied, result.AlreadyApplied,
+			)
+			lastHealthLog = now
+		}
+		value := result.Health.BootstrapCompleted
+		lastBootstrap = &value
+	}
+
+	// Startup health is deliberately read before any periodic work. With a fresh
+	// deployment bootstrap=false, this only logs waiting state and cannot write
+	// historical POP recovery into Redis.
 	run()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -541,6 +674,9 @@ func runCampaignCompletedTicker(ctx context.Context, pg *sql.DB, cfg config.Conf
 func (a *App) Close() error {
 	if a.Stats != nil {
 		_ = a.Stats.Close()
+	}
+	if a.RecoveryRedis != nil {
+		_ = a.RecoveryRedis.Close()
 	}
 	if a.Postgres != nil {
 		return a.Postgres.Close()

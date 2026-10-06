@@ -141,6 +141,33 @@ func (r *ClickHouseRepository) CumulativeSpend(ctx context.Context) ([]Cumulativ
 	return totals, nil
 }
 
+func (r *ClickHouseRepository) CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error) {
+	query, err := buildPOPRecoveredSpendQuery(r.table)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	totals := make([]POPRecoveredSpendTotal, 0)
+	for rows.Next() {
+		var total POPRecoveredSpendTotal
+		if err := rows.Scan(&total.UserID, &total.CampaignID, &total.Amount); err != nil {
+			return nil, err
+		}
+		totals = append(totals, total)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return totals, nil
+}
+
 func (r *ClickHouseRepository) Calculator(
 	ctx context.Context,
 	req TrafficSegmentRequest,

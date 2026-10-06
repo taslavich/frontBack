@@ -19,6 +19,7 @@ type Config struct {
 	S3               S3Config
 	Notifications    NotificationsConfig
 	SpendSync        SpendSyncConfig
+	POPRecovery      POPRecoveryConfig
 	PassimPay        PassimPayConfig
 	Cryptomus        CryptomusConfig
 	Bot              BotConfig
@@ -168,6 +169,17 @@ func Load(ctx context.Context) (*Config, error) {
 type SpendSyncConfig struct {
 	Interval time.Duration `env:"STATS_SPEND_SYNC_INTERVAL" env-default:"30s"`
 	Timeout  time.Duration `env:"STATS_SPEND_SYNC_TIMEOUT" env-default:"30s"`
+}
+
+type POPRecoveryConfig struct {
+	RedisAddr         string        `env:"REDIS_ADV_ADDR" env-required:"true"`
+	RedisPassword     string        `env:"REDIS_PASSWORD" env-default:""`
+	RedisDB           int           `env:"REDIS_DB_ADV_RUNTIME" env-default:"5"`
+	ReconcileInterval time.Duration `env:"POP_RECOVERY_RECONCILE_INTERVAL" env-default:"5s"`
+	ReconcileTimeout  time.Duration `env:"POP_RECOVERY_RECONCILE_TIMEOUT" env-default:"5s"`
+	BatchSize         int           `env:"POP_RECOVERY_RECONCILE_BATCH_SIZE" env-default:"100"`
+	MarkerPrefix      string        `env:"POP_RECOVERY_MARKER_PREFIX" env-default:"pop-recovery:adjustment:"`
+	RedisTxRetries    int           `env:"POP_RECOVERY_REDIS_TX_RETRIES" env-default:"8"`
 }
 
 type NotificationsConfig struct {

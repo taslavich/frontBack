@@ -17,6 +17,7 @@ type trafficQuerier interface {
 
 type cumulativeSpendQuerier interface {
 	CumulativeSpend(ctx context.Context) ([]CumulativeSpendTotal, error)
+	CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error)
 }
 
 type closer interface {
@@ -60,6 +61,10 @@ func (s *Service) RecommendBid(ctx context.Context, req TrafficSegmentRequest) (
 
 func (s *Service) CumulativeSpend(ctx context.Context) ([]CumulativeSpendTotal, error) {
 	return s.repo.CumulativeSpend(ctx)
+}
+
+func (s *Service) CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error) {
+	return s.repo.CumulativePOPRecoveredSpend(ctx)
 }
 
 func (s *Service) Close() error {

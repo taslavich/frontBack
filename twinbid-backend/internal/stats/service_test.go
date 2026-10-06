@@ -18,8 +18,10 @@ type fakeRepository struct {
 	recommendResp  RecommendBidResponse
 	trafficErr     error
 
-	cumulativeSpendResp []CumulativeSpendTotal
-	cumulativeSpendErr  error
+	cumulativeSpendResp   []CumulativeSpendTotal
+	cumulativeSpendErr    error
+	popRecoveredSpendResp []POPRecoveredSpendTotal
+	popRecoveredSpendErr  error
 }
 
 func (f *fakeRepository) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
@@ -40,6 +42,10 @@ func (f *fakeRepository) RecommendBid(ctx context.Context, req TrafficSegmentReq
 
 func (f *fakeRepository) CumulativeSpend(ctx context.Context) ([]CumulativeSpendTotal, error) {
 	return f.cumulativeSpendResp, f.cumulativeSpendErr
+}
+
+func (f *fakeRepository) CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error) {
+	return f.popRecoveredSpendResp, f.popRecoveredSpendErr
 }
 
 func (f *fakeRepository) Close() error {
@@ -142,5 +148,22 @@ func TestServiceCumulativeSpendDelegatesToRepository(t *testing.T) {
 	}
 	if len(totals) != 1 || totals[0].Amount != "1.25" {
 		t.Fatalf("unexpected totals: %#v", totals)
+	}
+}
+
+func TestServiceCumulativePOPRecoveredSpendDelegatesToRepository(t *testing.T) {
+	repo := &fakeRepository{
+		popRecoveredSpendResp: []POPRecoveredSpendTotal{
+			{UserID: testUserID, CampaignID: "22222222-2222-4222-8222-222222222222", Amount: "2.5"},
+		},
+	}
+	svc := NewServiceWithRepository(repo)
+
+	totals, err := svc.CumulativePOPRecoveredSpend(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(totals) != 1 || totals[0].Amount != "2.5" {
+		t.Fatalf("unexpected recovered totals: %#v", totals)
 	}
 }

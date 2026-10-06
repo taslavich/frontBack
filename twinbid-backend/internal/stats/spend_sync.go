@@ -13,6 +13,17 @@ type CumulativeSpendTotal struct {
 	Amount     string
 }
 
+// POPRecoveredSpendTotal is the all-time cumulative POP recovery spend for a
+// concrete campaign and its owning advertiser. It is deliberately separate
+// from CumulativeSpendTotal: ordinary spend already contains recovered rows,
+// while this value is used only to derive the one-time Redis reconciliation
+// delta introduced by POP recovery.
+type POPRecoveredSpendTotal struct {
+	UserID     string
+	CampaignID string
+	Amount     string
+}
+
 func buildCumulativeSpendQuery(table string) (string, error) {
 	table, err := normalizeTable(table)
 	if err != nil {
@@ -52,4 +63,29 @@ HAVING notEmpty(entity_id)
        '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
    )
 ORDER BY entity_type, entity_id`, table), nil
+}
+
+func buildPOPRecoveredSpendQuery(table string) (string, error) {
+	table, err := normalizeTable(table)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`
+SELECT
+    trimBoth(win_user_id) AS user_id,
+    trimBoth(win_cid) AS campaign_id,
+    toString(round(ifNull(sum(pop_recovered_spend), 0), 12)) AS pop_recovered_spend
+FROM %s
+WHERE notEmpty(trimBoth(win_user_id))
+  AND notEmpty(trimBoth(win_cid))
+  AND isNotNull(toUUIDOrNull(trimBoth(win_user_id)))
+  AND isNotNull(toUUIDOrNull(trimBoth(win_cid)))
+  AND pop_recovered_spend > 0
+GROUP BY
+    win_user_id,
+    win_cid
+ORDER BY
+    user_id,
+    campaign_id`, table), nil
 }
