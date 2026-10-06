@@ -1,6 +1,9 @@
 package spendsync
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -9,8 +12,9 @@ import (
 )
 
 const (
-	userID     = "11111111-1111-4111-8111-111111111111"
-	campaignID = "22222222-2222-4222-8222-222222222222"
+	userID      = "11111111-1111-4111-8111-111111111111"
+	campaignID  = "22222222-2222-4222-8222-222222222222"
+	campaignID2 = "33333333-3333-4333-8333-333333333333"
 )
 
 func TestSplitTotals(t *testing.T) {
@@ -49,9 +53,10 @@ func TestSplitTotalsSkipsInvalidEntityIDWithoutBlockingValidTotals(t *testing.T)
 	const poisonCampaignID = "AlNDDRoGHQwYWwgCJSptJywnbHBuejF_"
 
 	userIDs, userAmounts, campaignIDs, campaignAmounts, skippedInvalidEntityRows, invalidEntityIDSamples, err := splitTotals([]stats.CumulativeSpendTotal{
-		{EntityType: "campaign", EntityID: poisonCampaignID, Amount: "0.0004216000060551"},
-		{EntityType: "user", EntityID: userID, Amount: "12.5"},
 		{EntityType: "campaign", EntityID: campaignID, Amount: "4.5"},
+		{EntityType: "campaign", EntityID: poisonCampaignID, Amount: "0.0004216000060551"},
+		{EntityType: "campaign", EntityID: campaignID2, Amount: "6.5"},
+		{EntityType: "user", EntityID: userID, Amount: "12.5"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -65,8 +70,58 @@ func TestSplitTotalsSkipsInvalidEntityIDWithoutBlockingValidTotals(t *testing.T)
 	if len(userIDs) != 1 || userIDs[0] != userID || userAmounts[0] != "12.5" {
 		t.Fatalf("valid user total was not preserved: ids=%v amounts=%v", userIDs, userAmounts)
 	}
-	if len(campaignIDs) != 1 || campaignIDs[0] != campaignID || campaignAmounts[0] != "4.5" {
-		t.Fatalf("valid campaign total was not preserved: ids=%v amounts=%v", campaignIDs, campaignAmounts)
+	if len(campaignIDs) != 2 || campaignIDs[0] != campaignID || campaignAmounts[0] != "4.5" || campaignIDs[1] != campaignID2 || campaignAmounts[1] != "6.5" {
+		t.Fatalf("valid campaign totals around invalid row were not preserved: ids=%v amounts=%v", campaignIDs, campaignAmounts)
+	}
+}
+
+func TestSplitTotalsRequiresCanonicalInternalUUID(t *testing.T) {
+	for _, nonCanonical := range []string{
+		"22222222-2222-4222-8222-22222222222A",
+		"22222222222242228222222222222222",
+		"{22222222-2222-4222-8222-222222222222}",
+	} {
+		_, _, campaignIDs, _, skipped, samples, err := splitTotals([]stats.CumulativeSpendTotal{
+			{EntityType: "campaign", EntityID: nonCanonical, Amount: "1"},
+		})
+		if err != nil {
+			t.Fatalf("non-canonical entity must be skipped, not fatal: id=%q err=%v", nonCanonical, err)
+		}
+		if len(campaignIDs) != 0 || skipped != 1 || len(samples) != 1 {
+			t.Fatalf("non-canonical entity was not skipped: id=%q campaigns=%v skipped=%d samples=%v", nonCanonical, campaignIDs, skipped, samples)
+		}
+	}
+}
+
+var errRecoveryQueryReached = errors.New("recovery query reached")
+
+type recoveryReachabilitySource struct {
+	recoveryCalled bool
+}
+
+func (s *recoveryReachabilitySource) CumulativeSpend(context.Context) ([]stats.CumulativeSpendTotal, error) {
+	return []stats.CumulativeSpendTotal{
+		{EntityType: "campaign", EntityID: "AlNDDRoGHQwYWwgCJSptJywnbHBuejF_", Amount: "1"},
+	}, nil
+}
+
+func (s *recoveryReachabilitySource) CumulativePOPRecoveredSpend(context.Context) ([]stats.POPRecoveredSpendTotal, error) {
+	s.recoveryCalled = true
+	return nil, errRecoveryQueryReached
+}
+
+func TestSyncInvalidEntityDoesNotBlockFollowingPOPRecoverySync(t *testing.T) {
+	source := &recoveryReachabilitySource{}
+	service := NewService(&sql.DB{}, source)
+	result, err := service.Sync(context.Background())
+	if !source.recoveryCalled {
+		t.Fatal("POP recovery cumulative query was not reached after invalid ordinary spend row")
+	}
+	if !errors.Is(err, errRecoveryQueryReached) {
+		t.Fatalf("expected sentinel recovery query error after invalid row was skipped, got %v", err)
+	}
+	if result.SkippedInvalidEntityRows != 1 {
+		t.Fatalf("expected invalid ordinary row to be recorded as skipped, got %d", result.SkippedInvalidEntityRows)
 	}
 }
 
@@ -132,6 +187,20 @@ func TestNormalizeRecoveryTotalsSortsAndPreservesDecimalText(t *testing.T) {
 	}
 	if totals[1].Amount != "2.500000000001" {
 		t.Fatalf("decimal text changed unexpectedly: %#v", totals[1])
+	}
+}
+
+func TestNormalizeRecoveryTotalsSkipsInvalidNonInternalIDs(t *testing.T) {
+	totals, err := normalizeRecoveryTotals([]stats.POPRecoveredSpendTotal{
+		{UserID: userID, CampaignID: campaignID, Amount: "1"},
+		{UserID: userID, CampaignID: "AlNDDRoGHQwYWwgCJSptJywnbHBuejF_", Amount: "2"},
+		{UserID: "not-an-internal-user", CampaignID: campaignID2, Amount: "3"},
+	})
+	if err != nil {
+		t.Fatalf("invalid/non-internal IDs must be skipped, not abort POP recovery normalization: %v", err)
+	}
+	if len(totals) != 1 || totals[0].CampaignID != campaignID || totals[0].UserID != userID {
+		t.Fatalf("unexpected normalized recovery totals after invalid rows were skipped: %#v", totals)
 	}
 }
 

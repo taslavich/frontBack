@@ -11,12 +11,13 @@ func TestBuildCumulativeSpendQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if strings.Contains(query, "toUUIDOrNull(entity_id)") {
+	if strings.Contains(query, "toUUIDOrNull") {
 		t.Fatalf("cumulative spend query must not use ClickHouse permissive UUID conversion:\n%s", query)
 	}
 	for _, fragment := range []string{
-		"match(",
-		"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+		"length(entity_id) = 36",
+		"match(entity_id",
+		canonicalUUIDClickHouseRegexp,
 	} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("cumulative spend query missing strict UUID filter %q:\n%s", fragment, query)
@@ -50,7 +51,15 @@ func TestBuildPOPRecoveredSpendQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	if strings.Contains(query, "toUUIDOrNull") {
+		t.Fatalf("POP recovery query must not rely on permissive UUID conversion:\n%s", query)
+	}
 	for _, fragment := range []string{
+		"length(trimBoth(win_user_id)) = 36",
+		"match(trimBoth(win_user_id)",
+		"length(trimBoth(win_cid)) = 36",
+		"match(trimBoth(win_cid)",
+		canonicalUUIDClickHouseRegexp,
 		"FROM ads.agg_stats",
 		"sum(pop_recovered_spend)",
 		"trimBoth(win_user_id) AS user_id",
@@ -63,6 +72,9 @@ func TestBuildPOPRecoveredSpendQuery(t *testing.T) {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("POP recovery query does not contain %q:\n%s", fragment, query)
 		}
+	}
+	if strings.Contains(strings.ToUpper(query), "UPDATE ") || strings.Contains(strings.ToUpper(query), "ALTER ") {
+		t.Fatalf("spend sync must only filter/select raw win_cid, never rewrite storage semantics:\n%s", query)
 	}
 }
 

@@ -222,11 +222,6 @@ func sendStatsSpendSyncInvalidEntityAlert(botCfg config.BotConfig, result spends
 	}
 
 	now := time.Now().UTC()
-	log.Printf(
-		"stats spend sync data error: skipped_invalid_entity_rows=%d samples=%v",
-		result.SkippedInvalidEntityRows,
-		result.InvalidEntityIDSamples,
-	)
 	text := fmt.Sprintf(
 		"⚠️ STATS SPEND SYNC DATA ERROR\n"+
 			"stage: invalid_clickhouse_entity_id\n"+
@@ -287,6 +282,7 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 		timeout = interval
 	}
 	lastRecoveryAnomaly := ""
+	lastInvalidEntityAlert := ""
 
 	run := func() {
 		startedAt := time.Now()
@@ -305,7 +301,16 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			return
 		}
 		if result.SkippedInvalidEntityRows > 0 {
-			sendStatsSpendSyncInvalidEntityAlert(cfg.Bot, result)
+			invalidAlertKey := strings.Join(result.InvalidEntityIDSamples, "\x1f")
+			if invalidAlertKey == "" {
+				invalidAlertKey = fmt.Sprintf("count:%d", result.SkippedInvalidEntityRows)
+			}
+			if invalidAlertKey != lastInvalidEntityAlert {
+				sendStatsSpendSyncInvalidEntityAlert(cfg.Bot, result)
+				lastInvalidEntityAlert = invalidAlertKey
+			}
+		} else {
+			lastInvalidEntityAlert = ""
 		}
 		log.Printf(
 			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d pop_recovery_source_rows=%d pop_recovery_adjustments_created=%d pop_recovery_bootstrap_completed=%t pop_recovery_anomalies=%d",

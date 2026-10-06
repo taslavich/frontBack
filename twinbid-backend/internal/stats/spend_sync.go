@@ -24,6 +24,8 @@ type POPRecoveredSpendTotal struct {
 	Amount     string
 }
 
+const canonicalUUIDClickHouseRegexp = `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+
 func buildCumulativeSpendQuery(table string) (string, error) {
 	table, err := normalizeTable(table)
 	if err != nil {
@@ -58,11 +60,9 @@ GROUP BY GROUPING SETS
     (win_cid)
 )
 HAVING notEmpty(entity_id)
-   AND match(
-       entity_id,
-       '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
-   )
-ORDER BY entity_type, entity_id`, table), nil
+   AND length(entity_id) = 36
+   AND match(entity_id, '%s')
+ORDER BY entity_type, entity_id`, table, canonicalUUIDClickHouseRegexp), nil
 }
 
 func buildPOPRecoveredSpendQuery(table string) (string, error) {
@@ -79,13 +79,15 @@ SELECT
 FROM %s
 WHERE notEmpty(trimBoth(win_user_id))
   AND notEmpty(trimBoth(win_cid))
-  AND isNotNull(toUUIDOrNull(trimBoth(win_user_id)))
-  AND isNotNull(toUUIDOrNull(trimBoth(win_cid)))
+  AND length(trimBoth(win_user_id)) = 36
+  AND match(trimBoth(win_user_id), '%s')
+  AND length(trimBoth(win_cid)) = 36
+  AND match(trimBoth(win_cid), '%s')
   AND pop_recovered_spend > 0
 GROUP BY
     win_user_id,
     win_cid
 ORDER BY
     user_id,
-    campaign_id`, table), nil
+    campaign_id`, table, canonicalUUIDClickHouseRegexp, canonicalUUIDClickHouseRegexp), nil
 }

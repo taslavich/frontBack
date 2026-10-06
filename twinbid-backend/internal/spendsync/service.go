@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"math/big"
 	"sort"
@@ -139,6 +140,13 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	}
 	result.SkippedInvalidEntityRows = skippedInvalidEntityRows
 	result.InvalidEntityIDSamples = invalidEntityIDSamples
+	if skippedInvalidEntityRows > 0 {
+		log.Printf(
+			"[SPEND_SYNC][INVALID_NON_INTERNAL_ENTITY] skipped_rows=%d samples=%v",
+			skippedInvalidEntityRows,
+			invalidEntityIDSamples,
+		)
+	}
 	result.UserTotals = len(userIDs)
 	result.CampaignTotals = len(campaignIDs)
 
@@ -239,6 +247,22 @@ func (s *Service) syncRecoveryTotalsTx(ctx context.Context, totals []normalizedR
 	return nil
 }
 
+func canonicalEntityUUID(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) != 36 {
+		return "", false
+	}
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return "", false
+	}
+	canonical := parsed.String()
+	if value != canonical {
+		return "", false
+	}
+	return canonical, true
+}
+
 func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []string, []string, int, []string, error) {
 	userAmountsByID := make(map[string]string)
 	campaignAmountsByID := make(map[string]string)
@@ -250,7 +274,8 @@ func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []str
 		entityID := strings.TrimSpace(total.EntityID)
 		amount := strings.TrimSpace(total.Amount)
 
-		if _, err := uuid.Parse(entityID); err != nil {
+		canonicalEntityID, ok := canonicalEntityUUID(entityID)
+		if !ok {
 			skippedInvalidEntityRows++
 			if len(invalidEntityIDSamples) < 5 {
 				invalidEntityIDSamples = append(
@@ -260,6 +285,7 @@ func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []str
 			}
 			continue
 		}
+		entityID = canonicalEntityID
 		value, err := strconv.ParseFloat(amount, 64)
 		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
 			return nil, nil, nil, nil, skippedInvalidEntityRows, invalidEntityIDSamples, fmt.Errorf("invalid ClickHouse cumulative spend amount at row %d: %q", i, amount)
@@ -299,14 +325,15 @@ func normalizeRecoveryTotals(totals []stats.POPRecoveredSpendTotal) ([]normalize
 	out := make([]normalizedRecoveryTotal, 0, len(totals))
 	seenCampaigns := make(map[string]struct{}, len(totals))
 	for i, total := range totals {
-		userID := strings.TrimSpace(total.UserID)
-		campaignID := strings.TrimSpace(total.CampaignID)
+		userID, userOK := canonicalEntityUUID(total.UserID)
+		campaignID, campaignOK := canonicalEntityUUID(total.CampaignID)
 		amount := strings.TrimSpace(total.Amount)
-		if _, err := uuid.Parse(userID); err != nil {
-			return nil, fmt.Errorf("invalid ClickHouse POP recovery user_id at row %d: %w", i, err)
-		}
-		if _, err := uuid.Parse(campaignID); err != nil {
-			return nil, fmt.Errorf("invalid ClickHouse POP recovery campaign_id at row %d: %w", i, err)
+		if !userOK || !campaignOK {
+			log.Printf(
+				"[POP_RECOVERY][INVALID_NON_INTERNAL_ENTITY] row=%d user_id=%q campaign_id=%q",
+				i, total.UserID, total.CampaignID,
+			)
+			continue
 		}
 		if _, exists := seenCampaigns[campaignID]; exists {
 			return nil, fmt.Errorf("duplicate ClickHouse POP recovery campaign_id at row %d: %s", i, campaignID)
