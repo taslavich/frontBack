@@ -109,7 +109,7 @@ func (s *Service) verifyAndMaybeCreditStaticWallet(ctx context.Context, item mod
 	if item.PaymentChannel != PaymentChannelStaticWallet || item.Status != models.TopupPending || item.CreditedAt != nil || item.TransactionHash == nil {
 		return item, tronscan.VerificationPending, nil
 	}
-	if !strings.EqualFold(strings.TrimSpace(item.PaymentMethod), "USDT TRC20") {
+	if !isUSDTTRC20PaymentMethod(item.PaymentMethod) {
 		return item, tronscan.VerificationPending, nil
 	}
 	hash := strings.TrimSpace(*item.TransactionHash)
@@ -221,6 +221,11 @@ func (s *Service) creditVerifiedStaticWallet(ctx context.Context, checked models
 		return models.UserTransaction{}, err
 	}
 	return credited, nil
+}
+
+func isUSDTTRC20PaymentMethod(value string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	return normalized == "USDT TRC20" || normalized == "USDT_TRC20"
 }
 
 func usdtMicroAmount(amount float64) (*big.Int, error) {

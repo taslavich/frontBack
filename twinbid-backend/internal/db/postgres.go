@@ -546,7 +546,8 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`CREATE INDEX IF NOT EXISTS idx_transactions_channel_status ON user_transactions(payment_channel, status, updated_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_passimpay_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='passimpay_invoice' AND credited_at IS NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_cryptomus_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='cryptomus_invoice' AND credited_at IS NULL;`,
-		`CREATE INDEX IF NOT EXISTS idx_transactions_tronscan_reconcile ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='static_wallet' AND UPPER(TRIM(payment_method))='USDT TRC20' AND status='pending' AND credited_at IS NULL AND transaction_hash IS NOT NULL AND transaction_hash<>'';`,
+		`DROP INDEX IF EXISTS idx_transactions_tronscan_reconcile;`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_tronscan_reconcile_v2 ON user_transactions(provider_next_check_at, updated_at) WHERE payment_channel='static_wallet' AND UPPER(TRIM(payment_method)) IN ('USDT TRC20','USDT_TRC20') AND status='pending' AND credited_at IS NULL AND transaction_hash IS NOT NULL AND transaction_hash<>'';`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_invoice_expiry ON user_transactions(invoice_expires_at) WHERE payment_channel IN ('passimpay_invoice','cryptomus_invoice') AND credited_at IS NULL AND status IN ('draft','pending');`,
 		`DO $$
 		BEGIN

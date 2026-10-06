@@ -119,3 +119,23 @@ func TestUSDTMicroAmount(t *testing.T) {
 		t.Fatalf("micro amount=%s want=100250000", got.String())
 	}
 }
+
+func TestIsUSDTTRC20PaymentMethodAcceptsStoredAndLegacyForms(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "usdt_trc20", want: true},
+		{value: "USDT_TRC20", want: true},
+		{value: "USDT TRC20", want: true},
+		{value: "  usdt trc20  ", want: true},
+		{value: "usdt_erc20", want: false},
+		{value: "", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := isUSDTTRC20PaymentMethod(tt.value); got != tt.want {
+			t.Fatalf("isUSDTTRC20PaymentMethod(%q)=%t, want %t", tt.value, got, tt.want)
+		}
+	}
+}
