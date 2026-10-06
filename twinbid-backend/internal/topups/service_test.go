@@ -129,6 +129,8 @@ func TestIsUSDTTRC20PaymentMethodAcceptsStoredAndLegacyForms(t *testing.T) {
 		{value: "USDT_TRC20", want: true},
 		{value: "USDT TRC20", want: true},
 		{value: "  usdt trc20  ", want: true},
+		{value: "usdt-trc20", want: true},
+		{value: "Usdt Trc20", want: true},
 		{value: "usdt_erc20", want: false},
 		{value: "", want: false},
 	}

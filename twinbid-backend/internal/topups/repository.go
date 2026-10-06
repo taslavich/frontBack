@@ -401,7 +401,7 @@ func (r *Repository) ListPendingStaticWallets(ctx context.Context, limit int) ([
 	}
 	rows, err := r.db.QueryContext(ctx, selectTx+`
 		WHERE payment_channel='static_wallet'
-		  AND UPPER(TRIM(payment_method)) IN ('USDT TRC20','USDT_TRC20')
+		  AND regexp_replace(lower(trim(payment_method)), '[^a-z0-9]', '', 'g')='usdttrc20'
 		  AND credited_at IS NULL
 		  AND status='pending'
 		  AND transaction_hash IS NOT NULL

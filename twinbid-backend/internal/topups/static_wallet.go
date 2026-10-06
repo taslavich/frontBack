@@ -224,8 +224,9 @@ func (s *Service) creditVerifiedStaticWallet(ctx context.Context, checked models
 }
 
 func isUSDTTRC20PaymentMethod(value string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
-	return normalized == "USDT TRC20" || normalized == "USDT_TRC20"
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.NewReplacer("_", "", "-", "", " ", "").Replace(normalized)
+	return normalized == "usdttrc20"
 }
 
 func usdtMicroAmount(amount float64) (*big.Int, error) {
