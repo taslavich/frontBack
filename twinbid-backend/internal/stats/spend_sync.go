@@ -8,9 +8,10 @@ import (
 // ClickHouse statistics. Amount is kept as decimal text until PostgreSQL casts
 // it to NUMERIC, avoiding another float conversion in the synchronization path.
 type CumulativeSpendTotal struct {
-	EntityType string
-	EntityID   string
-	Amount     string
+	EntityType     string
+	EntityID       string
+	Amount         string
+	DiagnosticOnly bool
 }
 
 // POPRecoveredSpendTotal is the all-time cumulative POP recovery spend for a
@@ -63,6 +64,31 @@ HAVING notEmpty(entity_id)
    AND length(entity_id) = 36
    AND match(entity_id, '%s')
 ORDER BY entity_type, entity_id`, table, canonicalUUIDClickHouseRegexp), nil
+}
+
+func buildFilteredNonCanonicalUUIDLikeCampaignQuery(table string) (string, error) {
+	table, err := normalizeTable(table)
+	if err != nil {
+		return "", err
+	}
+
+	// This query is diagnostic only. The authoritative spend query above still
+	// accepts entities exclusively through the strict canonical UUID predicate.
+	// Here toUUIDOrNull is intentionally used to surface the narrow class of raw
+	// DSP win_cid values that ClickHouse would have permissively coerced to UUIDs
+	// in the old implementation (the production poison-row failure mode).
+	return fmt.Sprintf(`
+SELECT trimBoth(win_cid) AS entity_id
+FROM %s
+WHERE notEmpty(trimBoth(win_cid))
+  AND NOT (
+      length(trimBoth(win_cid)) = 36
+      AND match(trimBoth(win_cid), '%s')
+  )
+  AND isNotNull(toUUIDOrNull(trimBoth(win_cid)))
+GROUP BY win_cid
+ORDER BY entity_id
+LIMIT 5`, table, canonicalUUIDClickHouseRegexp), nil
 }
 
 func buildPOPRecoveredSpendQuery(table string) (string, error) {

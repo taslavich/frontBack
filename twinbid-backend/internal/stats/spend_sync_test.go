@@ -83,3 +83,34 @@ func TestBuildPOPRecoveredSpendQueryRejectsUnsafeTable(t *testing.T) {
 		t.Fatal("expected unsafe table name to be rejected")
 	}
 }
+
+func TestBuildFilteredNonCanonicalUUIDLikeCampaignQuery(t *testing.T) {
+	query, err := buildFilteredNonCanonicalUUIDLikeCampaignQuery("ads.agg_stats")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"FROM ads.agg_stats",
+		"trimBoth(win_cid)",
+		"isNotNull(toUUIDOrNull(trimBoth(win_cid)))",
+		"NOT (",
+		canonicalUUIDClickHouseRegexp,
+		"LIMIT 5",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("diagnostic query missing %q:\n%s", fragment, query)
+		}
+	}
+
+	upper := strings.ToUpper(query)
+	if strings.Contains(upper, "UPDATE ") || strings.Contains(upper, "ALTER ") {
+		t.Fatalf("diagnostic query must be read-only:\n%s", query)
+	}
+}
+
+func TestBuildFilteredNonCanonicalUUIDLikeCampaignQueryRejectsUnsafeTable(t *testing.T) {
+	if _, err := buildFilteredNonCanonicalUUIDLikeCampaignQuery("agg_stats; DROP TABLE users"); err == nil {
+		t.Fatal("expected unsafe table name to be rejected")
+	}
+}

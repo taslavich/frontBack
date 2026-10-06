@@ -129,7 +129,11 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	ordinaryQueryStartedAt := time.Now()
 	totals, err := s.source.CumulativeSpend(ctx)
 	result.ClickHouseQueryDuration += time.Since(ordinaryQueryStartedAt)
-	result.SourceRows = len(totals)
+	for _, total := range totals {
+		if !total.DiagnosticOnly {
+			result.SourceRows++
+		}
+	}
 	if err != nil {
 		return result, fmt.Errorf("query ClickHouse cumulative spend: %w", err)
 	}
@@ -273,6 +277,17 @@ func splitTotals(totals []stats.CumulativeSpendTotal) ([]string, []string, []str
 		entityType := strings.ToLower(strings.TrimSpace(total.EntityType))
 		entityID := strings.TrimSpace(total.EntityID)
 		amount := strings.TrimSpace(total.Amount)
+
+		if total.DiagnosticOnly {
+			skippedInvalidEntityRows++
+			if len(invalidEntityIDSamples) < 5 {
+				invalidEntityIDSamples = append(
+					invalidEntityIDSamples,
+					fmt.Sprintf("filtered_by_strict_ch_uuid_guard row=%d type=%q entity_id=%q", i, total.EntityType, total.EntityID),
+				)
+			}
+			continue
+		}
 
 		canonicalEntityID, ok := canonicalEntityUUID(entityID)
 		if !ok {

@@ -227,3 +227,25 @@ func TestDecimalStringKeepsTwelveDecimalRecoveryPrecision(t *testing.T) {
 		t.Fatalf("unexpected decimal: %q", got)
 	}
 }
+
+func TestSplitTotalsRecordsDiagnosticOnlyFilteredEntityWithoutAffectingValidTotals(t *testing.T) {
+	const poisonCampaignID = "AlNDDRoGHQwYWwgCJSptJywnbHBuejF_"
+
+	userIDs, userAmounts, campaignIDs, campaignAmounts, skipped, samples, err := splitTotals([]stats.CumulativeSpendTotal{
+		{EntityType: "campaign", EntityID: campaignID, Amount: "4.5"},
+		{EntityType: "campaign", EntityID: poisonCampaignID, Amount: "0", DiagnosticOnly: true},
+		{EntityType: "user", EntityID: userID, Amount: "12.5"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if skipped != 1 || len(samples) != 1 || !strings.Contains(samples[0], poisonCampaignID) {
+		t.Fatalf("diagnostic filtered entity was not surfaced correctly: skipped=%d samples=%v", skipped, samples)
+	}
+	if len(userIDs) != 1 || userIDs[0] != userID || userAmounts[0] != "12.5" {
+		t.Fatalf("valid user total changed: ids=%v amounts=%v", userIDs, userAmounts)
+	}
+	if len(campaignIDs) != 1 || campaignIDs[0] != campaignID || campaignAmounts[0] != "4.5" {
+		t.Fatalf("valid campaign total changed: ids=%v amounts=%v", campaignIDs, campaignAmounts)
+	}
+}

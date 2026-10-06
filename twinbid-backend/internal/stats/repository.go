@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -17,7 +19,13 @@ type ClickHouseRepository struct {
 	db           *sql.DB
 	table        string
 	trafficTable string
+
+	invalidEntityProbeMu             sync.Mutex
+	lastInvalidEntityProbe           time.Time
+	filteredInvalidCampaignIDSamples []string
 }
+
+const filteredInvalidEntityProbeInterval = 10 * time.Minute
 
 func NewClickHouseRepository(ctx context.Context, cfg config.ClickHouseConfig) (*ClickHouseRepository, error) {
 	db, err := sql.Open("clickhouse", buildDSN(cfg))
@@ -138,7 +146,66 @@ func (r *ClickHouseRepository) CumulativeSpend(ctx context.Context) ([]Cumulativ
 		return nil, err
 	}
 
-	return totals, nil
+	return r.appendFilteredNonCanonicalUUIDLikeCampaignSamples(ctx, totals), nil
+}
+
+func (r *ClickHouseRepository) appendFilteredNonCanonicalUUIDLikeCampaignSamples(
+	ctx context.Context,
+	totals []CumulativeSpendTotal,
+) []CumulativeSpendTotal {
+	if r == nil || r.db == nil {
+		return totals
+	}
+
+	r.invalidEntityProbeMu.Lock()
+	defer r.invalidEntityProbeMu.Unlock()
+
+	now := time.Now()
+	if r.lastInvalidEntityProbe.IsZero() || now.Sub(r.lastInvalidEntityProbe) >= filteredInvalidEntityProbeInterval {
+		// Advance the probe clock before issuing the query so a failing diagnostic
+		// query cannot hammer ClickHouse every spend-sync cycle. The last known
+		// samples remain cached until a later successful probe replaces them.
+		r.lastInvalidEntityProbe = now
+
+		query, err := buildFilteredNonCanonicalUUIDLikeCampaignQuery(r.table)
+		if err != nil {
+			log.Printf("[SPEND_SYNC][INVALID_ENTITY_DIAGNOSTIC_ERROR] build query: %v", err)
+		} else {
+			rows, queryErr := r.db.QueryContext(ctx, query)
+			if queryErr != nil {
+				log.Printf("[SPEND_SYNC][INVALID_ENTITY_DIAGNOSTIC_ERROR] query ClickHouse: %v", queryErr)
+			} else {
+				samples := make([]string, 0, 5)
+				for rows.Next() {
+					var entityID string
+					if scanErr := rows.Scan(&entityID); scanErr != nil {
+						log.Printf("[SPEND_SYNC][INVALID_ENTITY_DIAGNOSTIC_ERROR] scan ClickHouse: %v", scanErr)
+						break
+					}
+					samples = append(samples, strings.TrimSpace(entityID))
+				}
+				if rowsErr := rows.Err(); rowsErr != nil {
+					log.Printf("[SPEND_SYNC][INVALID_ENTITY_DIAGNOSTIC_ERROR] iterate ClickHouse: %v", rowsErr)
+				} else {
+					r.filteredInvalidCampaignIDSamples = samples
+				}
+				_ = rows.Close()
+			}
+		}
+	}
+
+	for _, entityID := range r.filteredInvalidCampaignIDSamples {
+		if entityID == "" {
+			continue
+		}
+		totals = append(totals, CumulativeSpendTotal{
+			EntityType:     "campaign",
+			EntityID:       entityID,
+			Amount:         "0",
+			DiagnosticOnly: true,
+		})
+	}
+	return totals
 }
 
 func (r *ClickHouseRepository) CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error) {
