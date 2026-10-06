@@ -208,6 +208,35 @@ func (r *ClickHouseRepository) appendFilteredNonCanonicalUUIDLikeCampaignSamples
 	return totals
 }
 
+func (r *ClickHouseRepository) POPRecoveryEventsAfter(ctx context.Context, cursor POPRecoveryCursor, limit int) ([]POPRecoveryEvent, error) {
+	if limit <= 0 {
+		limit = 5000
+	}
+	query, err := buildPOPRecoveryEventsAfterQuery(popRecoveryEventsTable)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, cursor.RecoveryAtMS, cursor.RecoveryAtMS, cursor.SourceKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]POPRecoveryEvent, 0)
+	for rows.Next() {
+		var event POPRecoveryEvent
+		if err := rows.Scan(&event.RecoveryAtMS, &event.SourceKey, &event.UserID, &event.CampaignID, &event.Amount); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 func (r *ClickHouseRepository) CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error) {
 	query, err := buildPOPRecoveredSpendQuery(r.table)
 	if err != nil {

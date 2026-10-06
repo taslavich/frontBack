@@ -21,7 +21,7 @@ import (
 
 type source interface {
 	CumulativeSpend(ctx context.Context) ([]stats.CumulativeSpendTotal, error)
-	CumulativePOPRecoveredSpend(ctx context.Context) ([]stats.POPRecoveredSpendTotal, error)
+	POPRecoveryEventsAfter(ctx context.Context, cursor stats.POPRecoveryCursor, limit int) ([]stats.POPRecoveryEvent, error)
 }
 
 type Service struct {
@@ -30,19 +30,20 @@ type Service struct {
 }
 
 type Result struct {
-	SourceRows                 int
-	UserTotals                 int
-	CampaignTotals             int
-	UpdatedUsers               int64
-	UpdatedCampaigns           int64
-	StoppedCampaigns           int64
-	SkippedInvalidEntityRows   int
-	InvalidEntityIDSamples     []string
-	RecoverySourceRows         int
-	RecoveryAdjustmentsCreated int64
-	RecoveryBootstrapCompleted bool
-	RecoveryAnomalies          []RecoveryAnomaly
-	ClickHouseQueryDuration    time.Duration
+	SourceRows                     int
+	UserTotals                     int
+	CampaignTotals                 int
+	UpdatedUsers                   int64
+	UpdatedCampaigns               int64
+	StoppedCampaigns               int64
+	SkippedInvalidEntityRows       int
+	InvalidEntityIDSamples         []string
+	RecoverySourceRows             int
+	RecoveryAdjustmentsCreated     int64
+	RecoveryBootstrapCompleted     bool
+	RecoveryEventCursorInitialized bool
+	RecoveryAnomalies              []RecoveryAnomaly
+	ClickHouseQueryDuration        time.Duration
 }
 
 type RecoveryAnomaly struct {
@@ -65,6 +66,25 @@ type recoveryCursor struct {
 	Amount string
 	value  *big.Rat
 }
+
+// eventRecoveryState is the one global ordered marker for the immutable
+// ClickHouse pop_recovery_events stream. It replaces the old per-campaign
+// cumulative money cursors for all new reconciliation work.
+type eventRecoveryState struct {
+	BootstrapCompleted     bool
+	EventCursorInitialized bool
+	RecoveryAtMS           int64
+	SourceKey              string
+}
+
+type normalizedRecoveryEventGroup struct {
+	UserID     string
+	CampaignID string
+	Delta      string
+	value      *big.Rat
+}
+
+const recoveryEventFetchLimit = 5000
 
 const updateUsersCumulativeSpendSQL = `
 WITH incoming(id, cum_done_dollars) AS (
@@ -163,18 +183,38 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		}
 	}
 
-	recoveryQueryStartedAt := time.Now()
-	recoveryTotals, err := s.source.CumulativePOPRecoveredSpend(ctx)
-	result.ClickHouseQueryDuration += time.Since(recoveryQueryStartedAt)
-	result.RecoverySourceRows = len(recoveryTotals)
-	if err != nil {
-		return result, fmt.Errorf("query ClickHouse POP recovered spend: %w", err)
-	}
-	normalizedRecovery, err := normalizeRecoveryTotals(recoveryTotals)
+	state, err := s.readEventRecoveryState(ctx)
 	if err != nil {
 		return result, err
 	}
-	if err := s.syncRecoveryTotalsTx(ctx, normalizedRecovery, &result); err != nil {
+	result.RecoveryBootstrapCompleted = state.BootstrapCompleted
+	result.RecoveryEventCursorInitialized = state.EventCursorInitialized
+	if !state.BootstrapCompleted || !state.EventCursorInitialized {
+		return result, nil
+	}
+
+	recoveryQueryStartedAt := time.Now()
+	events, err := s.source.POPRecoveryEventsAfter(ctx, stats.POPRecoveryCursor{
+		RecoveryAtMS: state.RecoveryAtMS,
+		SourceKey:    state.SourceKey,
+	}, recoveryEventFetchLimit)
+	result.ClickHouseQueryDuration += time.Since(recoveryQueryStartedAt)
+	result.RecoverySourceRows = len(events)
+	if err != nil {
+		return result, fmt.Errorf("query ClickHouse POP recovery events: %w", err)
+	}
+	if len(events) == 0 {
+		return result, nil
+	}
+
+	groups, endCursor, err := normalizeRecoveryEvents(
+		events,
+		stats.POPRecoveryCursor{RecoveryAtMS: state.RecoveryAtMS, SourceKey: state.SourceKey},
+	)
+	if err != nil {
+		return result, err
+	}
+	if err := s.syncRecoveryEventsTx(ctx, state, groups, endCursor, &result); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -334,6 +374,218 @@ func sortedTotals(amountsByID map[string]string) ([]string, []string) {
 		amounts = append(amounts, amountsByID[id])
 	}
 	return ids, amounts
+}
+
+func (s *Service) readEventRecoveryState(ctx context.Context) (eventRecoveryState, error) {
+	var state eventRecoveryState
+	if err := s.postgres.QueryRowContext(ctx, `
+SELECT bootstrap_completed,
+       event_cursor_initialized,
+       last_event_recovery_at_ms,
+       last_event_source_key
+FROM pop_recovery_reconciliation_state
+WHERE id = 1`).Scan(
+		&state.BootstrapCompleted,
+		&state.EventCursorInitialized,
+		&state.RecoveryAtMS,
+		&state.SourceKey,
+	); err != nil {
+		return eventRecoveryState{}, fmt.Errorf("read POP recovery event cursor: %w", err)
+	}
+	return state, nil
+}
+
+func recoveryCursorLess(aAt int64, aKey string, bAt int64, bKey string) bool {
+	return aAt < bAt || (aAt == bAt && aKey < bKey)
+}
+
+func normalizeRecoveryEvents(events []stats.POPRecoveryEvent, start stats.POPRecoveryCursor) ([]normalizedRecoveryEventGroup, stats.POPRecoveryCursor, error) {
+	if len(events) == 0 {
+		return nil, start, nil
+	}
+
+	type aggregate struct {
+		UserID string
+		value  *big.Rat
+	}
+	byCampaign := make(map[string]aggregate)
+	previous := start
+	end := start
+
+	for i, event := range events {
+		key := strings.TrimSpace(event.SourceKey)
+		if key == "" || !recoveryCursorLess(previous.RecoveryAtMS, previous.SourceKey, event.RecoveryAtMS, key) {
+			return nil, start, fmt.Errorf(
+				"POP recovery events are not strictly ordered after cursor at row %d: previous=(%d,%q) current=(%d,%q)",
+				i, previous.RecoveryAtMS, previous.SourceKey, event.RecoveryAtMS, key,
+			)
+		}
+		previous = stats.POPRecoveryCursor{RecoveryAtMS: event.RecoveryAtMS, SourceKey: key}
+		end = previous
+
+		userID, userOK := canonicalEntityUUID(event.UserID)
+		campaignID, campaignOK := canonicalEntityUUID(event.CampaignID)
+		if !userOK || !campaignOK {
+			// ClickHouse applies the same canonical UUID filter. Keep this Go guard as
+			// defense in depth, but advance the global source marker past a raw
+			// external/malformed event so it can never poison future scans.
+			log.Printf(
+				"[POP_RECOVERY][INVALID_EVENT_ENTITY] row=%d marker=(%d,%q) user_id=%q campaign_id=%q",
+				i, event.RecoveryAtMS, key, event.UserID, event.CampaignID,
+			)
+			continue
+		}
+		value, ok := new(big.Rat).SetString(strings.TrimSpace(event.Amount))
+		if !ok || value.Sign() <= 0 {
+			return nil, start, fmt.Errorf("invalid ClickHouse POP recovery event amount at row %d: %q", i, event.Amount)
+		}
+
+		current, exists := byCampaign[campaignID]
+		if exists && current.UserID != userID {
+			return nil, start, fmt.Errorf(
+				"POP recovery campaign %s changed user inside one source batch: %s -> %s",
+				campaignID, current.UserID, userID,
+			)
+		}
+		if !exists {
+			current = aggregate{UserID: userID, value: new(big.Rat)}
+		}
+		current.value.Add(current.value, value)
+		byCampaign[campaignID] = current
+	}
+
+	campaignIDs := make([]string, 0, len(byCampaign))
+	for campaignID := range byCampaign {
+		campaignIDs = append(campaignIDs, campaignID)
+	}
+	sort.Strings(campaignIDs)
+	groups := make([]normalizedRecoveryEventGroup, 0, len(campaignIDs))
+	for _, campaignID := range campaignIDs {
+		agg := byCampaign[campaignID]
+		groups = append(groups, normalizedRecoveryEventGroup{
+			UserID:     agg.UserID,
+			CampaignID: campaignID,
+			Delta:      decimalString(agg.value),
+			value:      agg.value,
+		})
+	}
+	return groups, end, nil
+}
+
+func (s *Service) syncRecoveryEventsTx(
+	ctx context.Context,
+	expected eventRecoveryState,
+	groups []normalizedRecoveryEventGroup,
+	end stats.POPRecoveryCursor,
+	result *Result,
+) error {
+	tx, err := s.postgres.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin POP recovery event transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var current eventRecoveryState
+	if err := tx.QueryRowContext(ctx, `
+SELECT bootstrap_completed,
+       event_cursor_initialized,
+       last_event_recovery_at_ms,
+       last_event_source_key
+FROM pop_recovery_reconciliation_state
+WHERE id = 1
+FOR UPDATE`).Scan(
+		&current.BootstrapCompleted,
+		&current.EventCursorInitialized,
+		&current.RecoveryAtMS,
+		&current.SourceKey,
+	); err != nil {
+		return fmt.Errorf("lock POP recovery event cursor: %w", err)
+	}
+	if !current.BootstrapCompleted || !current.EventCursorInitialized {
+		return nil
+	}
+	if current.RecoveryAtMS != expected.RecoveryAtMS || current.SourceKey != expected.SourceKey {
+		// Another sync invocation advanced the source marker while this cycle was
+		// reading ClickHouse. Do not create duplicate adjustments; the next cycle
+		// will query again from the newer marker.
+		return nil
+	}
+	if !recoveryCursorLess(current.RecoveryAtMS, current.SourceKey, end.RecoveryAtMS, end.SourceKey) {
+		return fmt.Errorf(
+			"POP recovery end cursor did not advance: current=(%d,%q) end=(%d,%q)",
+			current.RecoveryAtMS, current.SourceKey, end.RecoveryAtMS, end.SourceKey,
+		)
+	}
+
+	if len(groups) > 0 {
+		adjustmentIDs := make([]string, 0, len(groups))
+		userIDs := make([]string, 0, len(groups))
+		campaignIDs := make([]string, 0, len(groups))
+		deltas := make([]string, 0, len(groups))
+		markerAt := make([]int64, 0, len(groups))
+		markerKey := make([]string, 0, len(groups))
+		zeros := make([]string, 0, len(groups))
+
+		for _, group := range groups {
+			if group.value == nil || group.value.Sign() <= 0 {
+				continue
+			}
+			adjustmentIDs = append(adjustmentIDs, uuid.NewString())
+			userIDs = append(userIDs, group.UserID)
+			campaignIDs = append(campaignIDs, group.CampaignID)
+			deltas = append(deltas, group.Delta)
+			markerAt = append(markerAt, end.RecoveryAtMS)
+			markerKey = append(markerKey, end.SourceKey)
+			zeros = append(zeros, "0")
+		}
+
+		if len(adjustmentIDs) > 0 {
+			insertResult, err := tx.ExecContext(ctx, `
+WITH incoming(adjustment_id, user_id, campaign_id, delta, source_before, source_after, source_marker_at_ms, source_marker_key) AS (
+    SELECT * FROM unnest(
+        $1::uuid[], $2::uuid[], $3::uuid[], $4::numeric[], $5::numeric[], $6::numeric[], $7::bigint[], $8::text[]
+    )
+)
+INSERT INTO pop_recovery_adjustments (
+    adjustment_id, user_id, campaign_id, delta,
+    source_before, source_after,
+    source_marker_at_ms, source_marker_key,
+    status
+)
+SELECT adjustment_id, user_id, campaign_id, delta,
+       source_before, source_after,
+       source_marker_at_ms, source_marker_key,
+       'pending'
+FROM incoming
+ON CONFLICT (campaign_id, source_marker_at_ms, source_marker_key) DO NOTHING`,
+				pq.Array(adjustmentIDs), pq.Array(userIDs), pq.Array(campaignIDs), pq.Array(deltas),
+				pq.Array(zeros), pq.Array(deltas), pq.Array(markerAt), pq.Array(markerKey),
+			)
+			if err != nil {
+				return fmt.Errorf("insert POP recovery event adjustments: %w", err)
+			}
+			created, err := insertResult.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("POP recovery event adjustments rows affected: %w", err)
+			}
+			result.RecoveryAdjustmentsCreated = created
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE pop_recovery_reconciliation_state
+SET last_event_recovery_at_ms = $1,
+    last_event_source_key = $2,
+    last_error = NULL,
+    updated_at = NOW()
+WHERE id = 1`, end.RecoveryAtMS, end.SourceKey); err != nil {
+		return fmt.Errorf("advance POP recovery event cursor: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit POP recovery event transaction: %w", err)
+	}
+	return nil
 }
 
 func normalizeRecoveryTotals(totals []stats.POPRecoveredSpendTotal) ([]normalizedRecoveryTotal, error) {

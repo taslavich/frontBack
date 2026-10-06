@@ -22,6 +22,10 @@ type fakeRepository struct {
 	cumulativeSpendErr    error
 	popRecoveredSpendResp []POPRecoveredSpendTotal
 	popRecoveredSpendErr  error
+	popRecoveryEventsResp []POPRecoveryEvent
+	popRecoveryEventsErr  error
+	gotRecoveryCursor     POPRecoveryCursor
+	gotRecoveryLimit      int
 }
 
 func (f *fakeRepository) Query(ctx context.Context, userID string, req QueryRequest) (QueryResponse, error) {
@@ -46,6 +50,12 @@ func (f *fakeRepository) CumulativeSpend(ctx context.Context) ([]CumulativeSpend
 
 func (f *fakeRepository) CumulativePOPRecoveredSpend(ctx context.Context) ([]POPRecoveredSpendTotal, error) {
 	return f.popRecoveredSpendResp, f.popRecoveredSpendErr
+}
+
+func (f *fakeRepository) POPRecoveryEventsAfter(ctx context.Context, cursor POPRecoveryCursor, limit int) ([]POPRecoveryEvent, error) {
+	f.gotRecoveryCursor = cursor
+	f.gotRecoveryLimit = limit
+	return f.popRecoveryEventsResp, f.popRecoveryEventsErr
 }
 
 func (f *fakeRepository) Close() error {
@@ -165,5 +175,26 @@ func TestServiceCumulativePOPRecoveredSpendDelegatesToRepository(t *testing.T) {
 	}
 	if len(totals) != 1 || totals[0].Amount != "2.5" {
 		t.Fatalf("unexpected recovered totals: %#v", totals)
+	}
+}
+
+func TestServicePOPRecoveryEventsAfterDelegatesToRepository(t *testing.T) {
+	repo := &fakeRepository{
+		popRecoveryEventsResp: []POPRecoveryEvent{{
+			RecoveryAtMS: 1234, SourceKey: "pop-click:abc", UserID: testUserID,
+			CampaignID: "22222222-2222-4222-8222-222222222222", Amount: "2.5",
+		}},
+	}
+	svc := NewServiceWithRepository(repo)
+	cursor := POPRecoveryCursor{RecoveryAtMS: 1000, SourceKey: "pop-click:old"}
+	events, err := svc.POPRecoveryEventsAfter(context.Background(), cursor, 77)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 || events[0].Amount != "2.5" {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	if repo.gotRecoveryCursor != cursor || repo.gotRecoveryLimit != 77 {
+		t.Fatalf("unexpected delegation: cursor=%#v limit=%d", repo.gotRecoveryCursor, repo.gotRecoveryLimit)
 	}
 }

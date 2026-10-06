@@ -38,12 +38,13 @@ type applier interface {
 }
 
 type Health struct {
-	BootstrapCompleted bool
-	CursorRows         int64
-	CursorTotal        string
-	PendingAdjustments int64
-	LastError          string
-	LastErrorAt        sql.NullTime
+	BootstrapCompleted     bool
+	EventCursorInitialized bool
+	EventCursorAtMS        int64
+	EventCursorSourceKey   string
+	PendingAdjustments     int64
+	LastError              string
+	LastErrorAt            sql.NullTime
 }
 
 type RunResult struct {
@@ -74,16 +75,18 @@ func (r *Reconciler) Health(ctx context.Context) (Health, error) {
 	if err := r.postgres.QueryRowContext(ctx, `
 SELECT
     s.bootstrap_completed,
-    (SELECT count(*) FROM pop_recovery_cursors),
-    COALESCE((SELECT sum(source_total)::text FROM pop_recovery_cursors), '0'),
+    s.event_cursor_initialized,
+    s.last_event_recovery_at_ms,
+    s.last_event_source_key,
     (SELECT count(*) FROM pop_recovery_adjustments WHERE status = 'pending'),
     COALESCE(s.last_error, ''),
     s.last_error_at
 FROM pop_recovery_reconciliation_state AS s
 WHERE s.id = 1`).Scan(
 		&health.BootstrapCompleted,
-		&health.CursorRows,
-		&health.CursorTotal,
+		&health.EventCursorInitialized,
+		&health.EventCursorAtMS,
+		&health.EventCursorSourceKey,
 		&health.PendingAdjustments,
 		&health.LastError,
 		&health.LastErrorAt,
@@ -106,7 +109,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (RunResult, error) {
 		return RunResult{}, err
 	}
 	result := RunResult{Health: health}
-	if !health.BootstrapCompleted {
+	if !health.BootstrapCompleted || !health.EventCursorInitialized {
 		return result, nil
 	}
 
@@ -236,10 +239,11 @@ func FormatHealthLog(health Health) string {
 		lastErrorAt = health.LastErrorAt.Time.UTC().Format(time.RFC3339)
 	}
 	return fmt.Sprintf(
-		"bootstrap_completed=%t cursor_rows=%d cursor_total=%s pending_adjustments=%d last_error=%q last_error_at=%q",
+		"bootstrap_completed=%t event_cursor_initialized=%t event_cursor_at_ms=%d event_cursor_source_key=%q pending_adjustments=%d last_error=%q last_error_at=%q",
 		health.BootstrapCompleted,
-		health.CursorRows,
-		health.CursorTotal,
+		health.EventCursorInitialized,
+		health.EventCursorAtMS,
+		health.EventCursorSourceKey,
 		health.PendingAdjustments,
 		health.LastError,
 		lastErrorAt,

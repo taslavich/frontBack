@@ -27,6 +27,61 @@ type POPRecoveredSpendTotal struct {
 
 const canonicalUUIDClickHouseRegexp = `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
 
+// POPRecoveryCursor is the global ordered marker for the immutable
+// pop_recovery_events stream. RecoveryAtMS is DateTime64(3) in Unix ms and
+// SourceKey breaks ties inside one recovery batch.
+type POPRecoveryCursor struct {
+	RecoveryAtMS int64
+	SourceKey    string
+}
+
+// POPRecoveryEvent is one newly recovered POP impression emitted by the
+// ClickHouse loader. Amount is decimal text to avoid another float round-trip
+// before PostgreSQL NUMERIC/Redis adjustment creation.
+type POPRecoveryEvent struct {
+	RecoveryAtMS int64
+	SourceKey    string
+	UserID       string
+	CampaignID   string
+	Amount       string
+}
+
+const popRecoveryEventsTable = "pop_recovery_events"
+
+func buildPOPRecoveryEventsAfterQuery(table string) (string, error) {
+	table, err := normalizeTable(table)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`
+SELECT
+    toUnixTimestamp64Milli(recovery_at) AS recovery_at_ms,
+    recovery_source_key,
+    trimBoth(user_id) AS user_id,
+    trimBoth(campaign_id) AS campaign_id,
+    toString(round(spend, 12)) AS recovered_spend
+FROM %s
+WHERE
+    (
+        toUnixTimestamp64Milli(recovery_at) > ?
+        OR (
+            toUnixTimestamp64Milli(recovery_at) = ?
+            AND recovery_source_key > ?
+        )
+    )
+  AND notEmpty(recovery_source_key)
+  AND notEmpty(trimBoth(user_id))
+  AND notEmpty(trimBoth(campaign_id))
+  AND length(trimBoth(user_id)) = 36
+  AND match(trimBoth(user_id), '%s')
+  AND length(trimBoth(campaign_id)) = 36
+  AND match(trimBoth(campaign_id), '%s')
+  AND spend > 0
+ORDER BY recovery_at, recovery_source_key
+LIMIT ?`, table, canonicalUUIDClickHouseRegexp, canonicalUUIDClickHouseRegexp), nil
+}
+
 func buildCumulativeSpendQuery(table string) (string, error) {
 	table, err := normalizeTable(table)
 	if err != nil {

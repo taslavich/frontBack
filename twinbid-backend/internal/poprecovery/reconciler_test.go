@@ -29,18 +29,20 @@ func TestAdjustmentValidate(t *testing.T) {
 
 func TestFormatHealthLogContainsBootstrapCursorPendingAndLastError(t *testing.T) {
 	health := Health{
-		BootstrapCompleted: true,
-		CursorRows:         3,
-		CursorTotal:        "12.5",
-		PendingAdjustments: 2,
-		LastError:          "redis unavailable",
-		LastErrorAt:        sql.NullTime{Time: time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC), Valid: true},
+		BootstrapCompleted:     true,
+		EventCursorInitialized: true,
+		EventCursorAtMS:        1234567890,
+		EventCursorSourceKey:   "pop-click:last",
+		PendingAdjustments:     2,
+		LastError:              "redis unavailable",
+		LastErrorAt:            sql.NullTime{Time: time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC), Valid: true},
 	}
 	got := FormatHealthLog(health)
 	for _, want := range []string{
 		"bootstrap_completed=true",
-		"cursor_rows=3",
-		"cursor_total=12.5",
+		"event_cursor_initialized=true",
+		"event_cursor_at_ms=1234567890",
+		`event_cursor_source_key="pop-click:last"`,
 		"pending_adjustments=2",
 		`last_error="redis unavailable"`,
 		"2026-10-06T00:00:00Z",

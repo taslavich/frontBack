@@ -145,6 +145,9 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			id SMALLINT PRIMARY KEY,
 			bootstrap_completed BOOLEAN NOT NULL DEFAULT false,
 			bootstrap_completed_at TIMESTAMP WITH TIME ZONE,
+			event_cursor_initialized BOOLEAN NOT NULL DEFAULT false,
+			last_event_recovery_at_ms BIGINT NOT NULL DEFAULT 0,
+			last_event_source_key TEXT NOT NULL DEFAULT '',
 			last_error TEXT,
 			last_error_at TIMESTAMP WITH TIME ZONE,
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -153,6 +156,12 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 		`INSERT INTO pop_recovery_reconciliation_state (id, bootstrap_completed)
 		 VALUES (1, false)
 		 ON CONFLICT (id) DO NOTHING;`,
+		`ALTER TABLE pop_recovery_reconciliation_state
+		 ADD COLUMN IF NOT EXISTS event_cursor_initialized BOOLEAN NOT NULL DEFAULT false;`,
+		`ALTER TABLE pop_recovery_reconciliation_state
+		 ADD COLUMN IF NOT EXISTS last_event_recovery_at_ms BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE pop_recovery_reconciliation_state
+		 ADD COLUMN IF NOT EXISTS last_event_source_key TEXT NOT NULL DEFAULT '';`,
 		`CREATE TABLE IF NOT EXISTS pop_recovery_cursors (
 			campaign_id UUID PRIMARY KEY,
 			user_id UUID NOT NULL,
@@ -177,10 +186,20 @@ func Migrate(ctx context.Context, db *sql.DB, publicAPIBaseURL string) error {
 			last_error TEXT,
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 			applied_at TIMESTAMP WITH TIME ZONE,
+			source_marker_at_ms BIGINT,
+			source_marker_key TEXT,
 			CONSTRAINT pop_recovery_adjustments_source_range CHECK (source_after > source_before),
 			CONSTRAINT pop_recovery_adjustments_delta_matches_source CHECK (delta = source_after - source_before),
 			CONSTRAINT pop_recovery_adjustments_campaign_source_unique UNIQUE (campaign_id, source_after)
 		);`,
+		`ALTER TABLE pop_recovery_adjustments
+		 ADD COLUMN IF NOT EXISTS source_marker_at_ms BIGINT;`,
+		`ALTER TABLE pop_recovery_adjustments
+		 ADD COLUMN IF NOT EXISTS source_marker_key TEXT;`,
+		`ALTER TABLE pop_recovery_adjustments
+		 DROP CONSTRAINT IF EXISTS pop_recovery_adjustments_campaign_source_unique;`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_pop_recovery_adjustments_campaign_marker_unique
+		 ON pop_recovery_adjustments(campaign_id, source_marker_at_ms, source_marker_key);`,
 		`CREATE INDEX IF NOT EXISTS idx_pop_recovery_adjustments_pending
 		 ON pop_recovery_adjustments(created_at, adjustment_id)
 		 WHERE status = 'pending';`,

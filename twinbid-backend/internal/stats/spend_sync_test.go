@@ -114,3 +114,23 @@ func TestBuildFilteredNonCanonicalUUIDLikeCampaignQueryRejectsUnsafeTable(t *tes
 		t.Fatal("expected unsafe table name to be rejected")
 	}
 }
+
+func TestBuildPOPRecoveryEventsAfterQuery(t *testing.T) {
+	query, err := buildPOPRecoveryEventsAfterQuery("pop_recovery_events")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, fragment := range []string{
+		"FROM pop_recovery_events",
+		"toUnixTimestamp64Milli(recovery_at)",
+		"recovery_source_key > ?",
+		"ORDER BY recovery_at, recovery_source_key",
+		"LIMIT ?",
+		"spend > 0",
+		canonicalUUIDClickHouseRegexp,
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("event query missing %q:\n%s", fragment, query)
+		}
+	}
+}

@@ -313,7 +313,7 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			lastInvalidEntityAlert = ""
 		}
 		log.Printf(
-			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d pop_recovery_source_rows=%d pop_recovery_adjustments_created=%d pop_recovery_bootstrap_completed=%t pop_recovery_anomalies=%d",
+			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d pop_recovery_source_rows=%d pop_recovery_adjustments_created=%d pop_recovery_bootstrap_completed=%t pop_recovery_event_cursor_initialized=%t pop_recovery_anomalies=%d",
 			duration,
 			formatDurationSecondsExact(result.ClickHouseQueryDuration),
 			result.SourceRows,
@@ -326,6 +326,7 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 			result.RecoverySourceRows,
 			result.RecoveryAdjustmentsCreated,
 			result.RecoveryBootstrapCompleted,
+			result.RecoveryEventCursorInitialized,
 			len(result.RecoveryAnomalies),
 		)
 
@@ -387,10 +388,11 @@ func runPOPRecoveryReconcileTicker(ctx context.Context, cfg config.Config, recon
 		lastAlertError = ""
 
 		now := time.Now().UTC()
-		bootstrapChanged := lastBootstrap == nil || *lastBootstrap != result.Health.BootstrapCompleted
+		bootstrapReady := result.Health.BootstrapCompleted && result.Health.EventCursorInitialized
+		bootstrapChanged := lastBootstrap == nil || *lastBootstrap != bootstrapReady
 		if bootstrapChanged || lastHealthLog.IsZero() || now.Sub(lastHealthLog) >= time.Minute || result.PendingLoaded > 0 {
 			state := "waiting"
-			if result.Health.BootstrapCompleted {
+			if bootstrapReady {
 				state = "complete"
 			}
 			log.Printf(
@@ -399,7 +401,7 @@ func runPOPRecoveryReconcileTicker(ctx context.Context, cfg config.Config, recon
 			)
 			lastHealthLog = now
 		}
-		value := result.Health.BootstrapCompleted
+		value := bootstrapReady
 		lastBootstrap = &value
 	}
 

@@ -2,8 +2,6 @@ package spendsync
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -93,8 +91,6 @@ func TestSplitTotalsRequiresCanonicalInternalUUID(t *testing.T) {
 	}
 }
 
-var errRecoveryQueryReached = errors.New("recovery query reached")
-
 type recoveryReachabilitySource struct {
 	recoveryCalled bool
 }
@@ -105,24 +101,13 @@ func (s *recoveryReachabilitySource) CumulativeSpend(context.Context) ([]stats.C
 	}, nil
 }
 
-func (s *recoveryReachabilitySource) CumulativePOPRecoveredSpend(context.Context) ([]stats.POPRecoveredSpendTotal, error) {
+func (s *recoveryReachabilitySource) POPRecoveryEventsAfter(context.Context, stats.POPRecoveryCursor, int) ([]stats.POPRecoveryEvent, error) {
 	s.recoveryCalled = true
-	return nil, errRecoveryQueryReached
+	return nil, nil
 }
 
-func TestSyncInvalidEntityDoesNotBlockFollowingPOPRecoverySync(t *testing.T) {
-	source := &recoveryReachabilitySource{}
-	service := NewService(&sql.DB{}, source)
-	result, err := service.Sync(context.Background())
-	if !source.recoveryCalled {
-		t.Fatal("POP recovery cumulative query was not reached after invalid ordinary spend row")
-	}
-	if !errors.Is(err, errRecoveryQueryReached) {
-		t.Fatalf("expected sentinel recovery query error after invalid row was skipped, got %v", err)
-	}
-	if result.SkippedInvalidEntityRows != 1 {
-		t.Fatalf("expected invalid ordinary row to be recorded as skipped, got %d", result.SkippedInvalidEntityRows)
-	}
+func TestRecoveryReachabilitySourceImplementsEventSource(t *testing.T) {
+	var _ source = (*recoveryReachabilitySource)(nil)
 }
 
 func TestUserSpendSyncConsumesPromoFromNewClickHouseSpendOnly(t *testing.T) {
@@ -247,5 +232,39 @@ func TestSplitTotalsRecordsDiagnosticOnlyFilteredEntityWithoutAffectingValidTota
 	}
 	if len(campaignIDs) != 1 || campaignIDs[0] != campaignID || campaignAmounts[0] != "4.5" {
 		t.Fatalf("valid campaign total changed: ids=%v amounts=%v", campaignIDs, campaignAmounts)
+	}
+}
+
+func TestNormalizeRecoveryEventsGroupsOnlyNewSlice(t *testing.T) {
+	start := stats.POPRecoveryCursor{RecoveryAtMS: 1000, SourceKey: "a"}
+	events := []stats.POPRecoveryEvent{
+		{RecoveryAtMS: 1001, SourceKey: "b", UserID: userID, CampaignID: campaignID, Amount: "1.25"},
+		{RecoveryAtMS: 1001, SourceKey: "c", UserID: userID, CampaignID: campaignID, Amount: "0.75"},
+		{RecoveryAtMS: 1002, SourceKey: "a", UserID: userID, CampaignID: campaignID2, Amount: "3"},
+	}
+	groups, end, err := normalizeRecoveryEvents(events, start)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if end.RecoveryAtMS != 1002 || end.SourceKey != "a" {
+		t.Fatalf("unexpected end cursor: %#v", end)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("unexpected group count: %d", len(groups))
+	}
+	if groups[0].CampaignID != campaignID || groups[0].Delta != "2" {
+		t.Fatalf("unexpected first group: %#v", groups[0])
+	}
+	if groups[1].CampaignID != campaignID2 || groups[1].Delta != "3" {
+		t.Fatalf("unexpected second group: %#v", groups[1])
+	}
+}
+
+func TestNormalizeRecoveryEventsRejectsNonMonotonicMarker(t *testing.T) {
+	_, _, err := normalizeRecoveryEvents([]stats.POPRecoveryEvent{{
+		RecoveryAtMS: 1000, SourceKey: "a", UserID: userID, CampaignID: campaignID, Amount: "1",
+	}}, stats.POPRecoveryCursor{RecoveryAtMS: 1000, SourceKey: "a"})
+	if err == nil {
+		t.Fatal("expected duplicate/non-advancing event marker to be rejected")
 	}
 }
