@@ -30,7 +30,7 @@ func TestBuildCumulativeSpendQuery(t *testing.T) {
 		"(win_cid)",
 		"spend_views_table",
 		"spend_clicks_table",
-		"('ban', 'nat', 'pop')",
+		"('ban', 'nat', 'pop', 'vid')",
 		"= 'ipp'",
 	} {
 		if !strings.Contains(query, fragment) {

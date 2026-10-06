@@ -97,7 +97,7 @@ SELECT
             ifNull(
                 sum(
                     multiIf(
-                        lowerUTF8(ifNull(format, '')) IN ('ban', 'nat', 'pop'), spend_views_table,
+                        lowerUTF8(ifNull(format, '')) IN ('ban', 'nat', 'pop', 'vid'), spend_views_table,
                         lowerUTF8(ifNull(format, '')) = 'ipp', spend_clicks_table,
                         0
                     )

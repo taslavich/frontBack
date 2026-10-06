@@ -44,7 +44,7 @@ func TestBuildStatsQueriesHourWithFilters(t *testing.T) {
 	mustContain(
 		t,
 		rowsPlan.SQL,
-		"lowerUTF8(ifNull(format, '')) IN ('ban', 'nat', 'pop'), spend_views_table",
+		"lowerUTF8(ifNull(format, '')) IN ('ban', 'nat', 'pop', 'vid'), spend_views_table",
 	)
 
 	mustContain(
