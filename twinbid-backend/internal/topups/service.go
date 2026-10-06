@@ -20,7 +20,10 @@ import (
 	"twinbid-backend/internal/promocodes"
 )
 
-const invoiceLifetime = time.Hour
+const (
+	invoiceLifetime       = time.Hour
+	minimumTopupAmountUSD = 100.0
+)
 
 type Service struct {
 	repo                   *Repository
@@ -682,12 +685,15 @@ func (s *Service) resolvePaymentSelection(req CreateTopupRequest) (string, payme
 }
 
 func normalizeMoney(value float64) (float64, error) {
-	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
-		return 0, httpx.BadRequest("deposit_amount must be positive")
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, httpx.BadRequest("deposit_amount must be a valid number")
 	}
 	rounded := roundMoney(value)
 	if math.Abs(value-rounded) > 0.0000001 {
 		return 0, httpx.BadRequest("deposit_amount must have at most two decimal places")
+	}
+	if rounded < minimumTopupAmountUSD {
+		return 0, httpx.BadRequest("deposit_amount must be at least 100 USD")
 	}
 	return rounded, nil
 }

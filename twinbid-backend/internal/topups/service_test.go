@@ -16,12 +16,13 @@ func TestNormalizeMoney(t *testing.T) {
 		want    float64
 		wantErr bool
 	}{
-		{name: "integer", value: 10, want: 10},
-		{name: "two decimals", value: 10.25, want: 10.25},
-		{name: "floating representation", value: 0.1 + 0.2, want: 0.3},
+		{name: "minimum", value: 100, want: 100},
+		{name: "two decimals", value: 100.25, want: 100.25},
+		{name: "floating representation", value: 100.1 + 0.2, want: 100.3},
+		{name: "below minimum", value: 99.99, wantErr: true},
 		{name: "zero", value: 0, wantErr: true},
 		{name: "negative", value: -1, wantErr: true},
-		{name: "too many decimals", value: 10.251, wantErr: true},
+		{name: "too many decimals", value: 100.251, wantErr: true},
 	}
 
 	for _, tt := range tests {
