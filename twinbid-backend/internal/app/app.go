@@ -233,34 +233,6 @@ func sendBackendDatabaseAlert(botCfg config.BotConfig, stage string, err error) 
 	}
 }
 
-func sendStatsSpendSyncInvalidEntityAlert(botCfg config.BotConfig, result spendsync.Result) {
-	if result.SkippedInvalidEntityRows <= 0 {
-		return
-	}
-
-	now := time.Now().UTC()
-	text := fmt.Sprintf(
-		"⚠️ STATS SPEND SYNC DATA ERROR\n"+
-			"stage: invalid_clickhouse_entity_id\n"+
-			"skipped_rows: %d\n"+
-			"samples: %v\n"+
-			"time_utc: %s",
-		result.SkippedInvalidEntityRows,
-		result.InvalidEntityIDSamples,
-		now.Format(time.RFC3339),
-	)
-
-	alertCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if alertErr := bot.NewBotClient(botCfg.BaseURL, botCfg.InternalSecret).SendTextMessage(alertCtx, text); alertErr != nil {
-		log.Printf(
-			"failed to send stats spend sync data telegram alert: skipped_invalid_entity_rows=%d alert_error=%v",
-			result.SkippedInvalidEntityRows,
-			alertErr,
-		)
-	}
-}
-
 func sendPOPRecoveryAlert(botCfg config.BotConfig, stage string, err error) {
 	if err == nil {
 		return
@@ -299,7 +271,6 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 		timeout = interval
 	}
 	lastRecoveryAnomaly := ""
-	lastInvalidEntityAlert := ""
 
 	run := func() {
 		startedAt := time.Now()
@@ -316,18 +287,6 @@ func runStatsSpendSyncTicker(ctx context.Context, cfg config.Config, service *sp
 				err,
 			)
 			return
-		}
-		if result.SkippedInvalidEntityRows > 0 {
-			invalidAlertKey := strings.Join(result.InvalidEntityIDSamples, "\x1f")
-			if invalidAlertKey == "" {
-				invalidAlertKey = fmt.Sprintf("count:%d", result.SkippedInvalidEntityRows)
-			}
-			if invalidAlertKey != lastInvalidEntityAlert {
-				sendStatsSpendSyncInvalidEntityAlert(cfg.Bot, result)
-				lastInvalidEntityAlert = invalidAlertKey
-			}
-		} else {
-			lastInvalidEntityAlert = ""
 		}
 		log.Printf(
 			"stats spend sync completed: total_duration=%s clickhouse_query_seconds=%s source_rows=%d user_totals=%d campaign_totals=%d updated_users=%d updated_campaigns=%d stopped_campaigns=%d skipped_invalid_entity_rows=%d pop_recovery_source_rows=%d pop_recovery_adjustments_created=%d pop_recovery_bootstrap_completed=%t pop_recovery_event_cursor_initialized=%t pop_recovery_anomalies=%d",
