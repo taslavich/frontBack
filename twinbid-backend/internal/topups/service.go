@@ -122,6 +122,12 @@ func (s *Service) Create(ctx context.Context, userID string, req CreateTopupRequ
 		}
 		if req.TransactionHash != nil && strings.TrimSpace(*req.TransactionHash) != "" {
 			value := strings.TrimSpace(*req.TransactionHash)
+			if isUSDTTRC20PaymentMethod(paymentMethod) {
+				value, err = normalizeTRONTransactionHash(*req.TransactionHash)
+				if err != nil {
+					return models.UserTransaction{}, err
+				}
+			}
 			transactionHash = &value
 		}
 	}
@@ -258,6 +264,12 @@ func (s *Service) Patch(ctx context.Context, userID, id string, req PatchTopupRe
 	}
 
 	txHash := strings.TrimSpace(*req.TransactionHash)
+	if isUSDTTRC20PaymentMethod(current.PaymentMethod) {
+		txHash, err = normalizeTRONTransactionHash(*req.TransactionHash)
+		if err != nil {
+			return models.UserTransaction{}, err
+		}
+	}
 	wasSubmitted := current.TransactionHash != nil && strings.TrimSpace(*current.TransactionHash) != ""
 	updated, err := s.repo.SubmitStaticHash(ctx, userID, id, txHash)
 	if err != nil {
@@ -682,6 +694,20 @@ func (s *Service) resolvePaymentSelection(req CreateTopupRequest) (string, payme
 		return "", nil, httpx.BadRequest("payment_channel does not match provider")
 	}
 	return expectedChannel, provider, nil
+}
+
+func normalizeTRONTransactionHash(value string) (string, error) {
+	if len(value) != 64 {
+		return "", httpx.BadRequest("transaction_hash must be exactly 64 hexadecimal characters")
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return "", httpx.BadRequest("transaction_hash must be exactly 64 hexadecimal characters")
+	}
+	return strings.ToLower(value), nil
 }
 
 func normalizeMoney(value float64) (float64, error) {

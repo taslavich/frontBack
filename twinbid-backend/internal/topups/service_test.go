@@ -3,9 +3,11 @@ package topups
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"twinbid-backend/internal/config"
+	"twinbid-backend/internal/models"
 	"twinbid-backend/internal/payments"
 )
 
@@ -142,3 +144,90 @@ func TestIsUSDTTRC20PaymentMethodAcceptsStoredAndLegacyForms(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeTRONTransactionHashRequiresExactly64HexCharacters(t *testing.T) {
+	const lower = "cd9386fa5dfe63cb1451a2aa3729ff33bc7771c276b21c81d0cea977ba46b84d"
+
+	valid := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "lowercase", value: lower, want: lower},
+		{name: "uppercase", value: strings.ToUpper(lower), want: lower},
+	}
+	for _, tt := range valid {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeTRONTransactionHash(tt.value)
+			if err != nil {
+				t.Fatalf("normalizeTRONTransactionHash(%q): %v", tt.value, err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeTRONTransactionHash(%q)=%q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+
+	invalid := []struct {
+		name  string
+		value string
+	}{
+		{name: "tronscan URL", value: "https://tronscan.org/#/transaction/" + lower},
+		{name: "63 chars", value: lower[:63]},
+		{name: "65 chars", value: lower + "0"},
+		{name: "non hex", value: lower[:63] + "g"},
+		{name: "0x prefix", value: "0x" + lower},
+		{name: "leading space", value: " " + lower},
+		{name: "trailing space", value: lower + " "},
+		{name: "text plus hash", value: "tx=" + lower},
+	}
+	for _, tt := range invalid {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, err := normalizeTRONTransactionHash(tt.value); err == nil {
+				t.Fatalf("normalizeTRONTransactionHash(%q) unexpectedly succeeded: %q", tt.value, got)
+			}
+		})
+	}
+}
+
+func TestCreateRejectsTRONURLBeforePersistence(t *testing.T) {
+	const txURL = "https://tronscan.org/#/transaction/cd9386fa5dfe63cb1451a2aa3729ff33bc7771c276b21c81d0cea977ba46b84d"
+	svc := NewService(nil, nil, nil, nil, nil, config.BotConfig{})
+	_, err := svc.Create(context.Background(), "user-1", CreateTopupRequest{
+		PaymentChannel:  PaymentChannelStaticWallet,
+		PaymentMethod:   "usdt_trc20",
+		DepositAmount:   100,
+		TransactionHash: ptrString(txURL),
+	})
+	if err == nil || !strings.Contains(err.Error(), "transaction_hash must be exactly 64 hexadecimal characters") {
+		t.Fatalf("Create() error=%v, want strict transaction_hash validation", err)
+	}
+}
+
+func TestPatchRejectsTRONURLBeforeHashUpdate(t *testing.T) {
+	const txURL = "https://tronscan.org/#/transaction/cd9386fa5dfe63cb1451a2aa3729ff33bc7771c276b21c81d0cea977ba46b84d"
+	current := models.UserTransaction{
+		ID:             "topup-1",
+		UserID:         "user-1",
+		TransactionID:  "tx-1",
+		PaymentChannel: PaymentChannelStaticWallet,
+		PaymentMethod:  "usdt_trc20",
+		DepositAmount:  100,
+		Status:         models.TopupPending,
+		Currency:       "USD",
+	}
+	db := newPaymentDB(t, []paymentDBStep{
+		{kind: "exec", match: "payment_channel IN"},
+		paymentQuery("WHERE id=$2 AND user_id=$1", topupRow(current)),
+	})
+	svc := NewService(NewRepository(db), nil, nil, nil, nil, config.BotConfig{})
+	_, err := svc.Patch(context.Background(), "user-1", "topup-1", PatchTopupRequest{
+		TransactionHashSet: true,
+		TransactionHash:    ptrString(txURL),
+	})
+	if err == nil || !strings.Contains(err.Error(), "transaction_hash must be exactly 64 hexadecimal characters") {
+		t.Fatalf("Patch() error=%v, want strict transaction_hash validation", err)
+	}
+}
+
+func ptrString(value string) *string { return &value }
