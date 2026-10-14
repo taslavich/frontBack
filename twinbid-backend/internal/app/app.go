@@ -24,6 +24,7 @@ import (
 	"twinbid-backend/internal/poprecovery"
 	"twinbid-backend/internal/profile"
 	"twinbid-backend/internal/promocodes"
+	"twinbid-backend/internal/publisher"
 	"twinbid-backend/internal/spendsync"
 	"twinbid-backend/internal/stats"
 	"twinbid-backend/internal/storage"
@@ -36,11 +37,12 @@ import (
 )
 
 type App struct {
-	Cfg           config.Config
-	Postgres      *sql.DB
-	Stats         *stats.Service
-	RecoveryRedis *redis.Client
-	Router        http.Handler
+	Cfg            config.Config
+	Postgres       *sql.DB
+	Stats          *stats.Service
+	RecoveryRedis  *redis.Client
+	PublisherRedis redis.UniversalClient
+	Router         http.Handler
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
@@ -53,6 +55,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		sendBackendDatabaseAlert(cfg.Bot, "smart_percenter_schema", err)
 		_ = pg.Close()
 		return nil, fmt.Errorf("smart percenter schema: %w", err)
+	}
+	if cfg.Publisher.Enabled {
+		if err := db.EnsurePublisherSchema(ctx, pg); err != nil {
+			pg.Close()
+			return nil, fmt.Errorf("publisher schema: %w", err)
+		}
 	}
 	log.Println("✅ Connected to Postgres")
 
@@ -204,8 +212,19 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 	go runNightCampaignAutoApproval(ctx, campaignSvc)
 
-	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler)
-	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, RecoveryRedis: recoveryRedis, Router: r}, nil
+	var pubSvc *publisher.Service
+	var pubRedis redis.UniversalClient
+	if cfg.Publisher.Enabled {
+		pubRedis, err = cfg.Publisher.Redis()
+		if err != nil {
+			return nil, err
+		}
+		pubSvc = publisher.New(pg, pubRedis, statsSvc, cfg.Publisher, cfg.Bot)
+		go pubSvc.Run(ctx)
+		go pubSvc.RunRevenueSync(ctx)
+	}
+	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler, pubSvc)
+	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, RecoveryRedis: recoveryRedis, PublisherRedis: pubRedis, Router: r}, nil
 }
 
 func sendBackendDatabaseAlert(botCfg config.BotConfig, stage string, err error) {
@@ -700,6 +719,9 @@ func runCampaignCompletedTicker(ctx context.Context, pg *sql.DB, cfg config.Conf
 }
 
 func (a *App) Close() error {
+	if a.PublisherRedis != nil {
+		a.PublisherRedis.Close()
+	}
 	if a.Stats != nil {
 		_ = a.Stats.Close()
 	}
@@ -732,6 +754,7 @@ func buildRouter(
 	notificationHandler *notifications.Handler,
 	statsHandler *stats.Handler,
 	advertiserStatsHandler *stats.AdvertiserAPIHandler,
+	publisherServices ...*publisher.Service,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -749,6 +772,11 @@ func buildRouter(
 	r.Post("/api/webhooks/passimpay", topupHandler.PassimPayWebhook)
 	r.Post("/api/webhooks/cryptomus", topupHandler.CryptomusWebhook)
 	r.Get("/api/advertiser/stats", advertiserStatsHandler.Query)
+	for _, svc := range publisherServices {
+		if svc != nil {
+			r.Post("/api/internal/publisher/financial-events", svc.Financial)
+		}
+	}
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", authHandler.Signup)
@@ -765,6 +793,11 @@ func buildRouter(
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(authSvc))
+		for _, svc := range publisherServices {
+			if svc != nil {
+				svc.Routes(r)
+			}
+		}
 		r.Get("/api/profile", profileHandler.Get)
 		r.Patch("/api/profile", profileHandler.Patch)
 		r.Get("/api/partners/stats", partnersHandler.Stats)
@@ -809,7 +842,7 @@ func buildRouter(
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Accept,X-Bot-Secret")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

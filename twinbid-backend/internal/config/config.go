@@ -5,12 +5,14 @@ import (
 	"log"
 	"strings"
 	"time"
+	"twinbid-backend/internal/publisherconfig"
 
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
+	Publisher        publisherconfig.Config
 	HTTP             HTTPConfig
 	Postgres         PostgresConfig
 	JWT              JWTConfig
