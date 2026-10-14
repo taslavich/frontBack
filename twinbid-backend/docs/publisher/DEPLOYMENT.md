@@ -35,7 +35,8 @@ publisher_context; все publisher-поля prewrite делает только 
 9. Прочитать MIGRATIONS.md: shared agg_stats + paused writers. Backend автоматически
 синхронизирует POP cumulative; внешний financial endpoint отключён (409).
 PUBLISHER_REVENUE_SYNC_INTERVAL=30s / PUBLISHER_REVENUE_SYNC_TIMEOUT=30s.
-Frontend должен отправлять обязательный traffic_type adult/mainstream.
+Frontend должен отправлять обязательный traffic_type adult/mainstream при POST;
+при PATCH поле необязательно, отсутствие сохраняет существующий тип.
 10. Старый `requests.db` — outbox ПРЕЖНЕГО патча, его сообщения нельзя автоматически
 переотправлять вместе с новым потоком. Сохранить копию и сверить pending UUID с уже
 загруженной статистикой. Новый error outbox использует отдельный `errors-v2.db`.

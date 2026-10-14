@@ -101,9 +101,11 @@ const stats = await http<PublisherReport>("/api/publisher/stats/query", {
 ## Требования фронтенду
 
 В Code форме выбор adult/mainstream обязателен, без третьего варианта и без
-предвыбранного значения. POST и PATCH должны явно отправлять traffic_type;
-отсутствие/null/неподдерживаемая строка → 400. При PATCH прочитать и отправить
-текущий допустимый тип вместе с version. Duplicate сохраняет тип исходного Code.
+предвыбранного значения. POST должен явно отправлять traffic_type;
+отсутствие/null/неподдерживаемая строка → 400. При PATCH traffic_type необязателен:
+отсутствие сохраняет существующий тип, adult/mainstream принимаются,
+null/пустая/неподдерживаемая строка → 400. Отправлять version прочитанного Code.
+Duplicate сохраняет тип исходного Code.
 Source revenue статусы теперь agg_stats_pending/ready/stale/unavailable; отражают
 состояние авто sync. Не считать баланс по winners/request fills. Balance дополнен
 cumulative_earned, paid_out и revenue_status. Накопленный доход, текущий остаток,

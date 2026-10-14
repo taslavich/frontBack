@@ -191,11 +191,12 @@ func (s *Service) patchCode(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, e)
 		return
 	}
-	raw, ok := fields["traffic_type"]
-	var traffic string
-	if !ok || string(raw) == "null" || json.Unmarshal(raw, &traffic) != nil || (traffic != "adult" && traffic != "mainstream") {
-		reply(w, nil, httpx.BadRequest("traffic_type is required and must be adult or mainstream"))
-		return
+	if raw, ok := fields["traffic_type"]; ok {
+		var traffic string
+		if string(raw) == "null" || json.Unmarshal(raw, &traffic) != nil || (traffic != "adult" && traffic != "mainstream") {
+			reply(w, nil, httpx.BadRequest("traffic_type must be adult or mainstream"))
+			return
+		}
 	}
 	allowed := map[string]bool{"name": true, "traffic_type": true, "device": true, "is_active": true, "trigger_click": true, "frequency_minutes": true, "max_per_session": true, "version": true}
 	for k := range fields {

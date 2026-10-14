@@ -1,7 +1,8 @@
 # Publisher FINAL
 
 Publisher Ad Code принимает только явно выбранный `adult` или `mainstream`.
-POST и PATCH без traffic_type / с null / с неподдерживаемой строкой дают 400.
+POST без traffic_type / с null / с неподдерживаемой строкой даёт 400.
+PATCH без traffic_type сохраняет существующий тип; переданный null или неверный тип → 400.
 Дублирование сохраняет допустимый тип. Pub выбирает соответствующий существующий
 POP feed, без fallback. Старые advertiser режимы/кампании не менялись.
 
