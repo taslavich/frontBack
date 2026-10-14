@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"github.com/redis/go-redis/v9"
+	"net"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -17,12 +19,16 @@ type Config struct {
 	RedisPassword       string        `env:"PUBLISHER_REDIS_PASSWORD"`
 	RedisTLS            bool          `env:"PUBLISHER_REDIS_TLS" env-default:"false"`
 	PublicURL           string        `env:"PUBLISHER_PUBLIC_URL"`
+	PublicScriptURL     string        `env:"PUBLISHER_PUBLIC_SCRIPT_URL"`
 	SyncInterval        time.Duration `env:"PUBLISHER_SYNC_INTERVAL" env-default:"2s"`
 	RevenueSyncInterval time.Duration `env:"PUBLISHER_REVENUE_SYNC_INTERVAL" env-default:"30s"`
 	RevenueSyncTimeout  time.Duration `env:"PUBLISHER_REVENUE_SYNC_TIMEOUT" env-default:"30s"`
 }
 
 func (c Config) Redis() (redis.UniversalClient, error) {
+	if e := c.ValidateScriptURL(); e != nil {
+		return nil, e
+	}
 	u, e := url.Parse(c.PublicURL)
 	if e != nil || u.Host == "" || u.User != nil || u.Scheme != "https" {
 		return nil, errors.New("PUBLISHER_PUBLIC_URL must be a public HTTPS origin")
@@ -48,4 +54,22 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 		return redis.NewClusterClient(&redis.ClusterOptions{Addrs: a, Username: c.RedisUsername, Password: c.RedisPassword, TLSConfig: o.TLSConfig, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout, PoolSize: o.PoolSize}), nil
 	}
 	return redis.NewUniversalClient(o), nil
+}
+
+// Optional stable SDK URL. An empty override keeps every existing embed unchanged.
+func (c Config) ScriptURL() string {
+	if c.PublicScriptURL != "" {
+		return c.PublicScriptURL
+	}
+	return strings.TrimRight(c.PublicURL, "/") + "/static/adManager.js"
+}
+func (c Config) ValidateScriptURL() error {
+	if c.PublicScriptURL == "" {
+		return nil
+	}
+	u, e := url.Parse(c.PublicScriptURL)
+	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Path == "" || u.RawPath != "" || !regexp.MustCompile(`^/[A-Za-z0-9_/-]+\.js$`).MatchString(u.Path) || strings.Contains(u.Path, "//") || strings.Contains(u.Path, "..") || net.ParseIP(u.Hostname()) != nil || !strings.Contains(u.Hostname(), ".") || strings.HasSuffix(u.Hostname(), ".local") || (u.Port() != "" && u.Port() != "443") {
+		return errors.New("PUBLISHER_PUBLIC_SCRIPT_URL must be an explicit HTTPS script URL without query/userinfo")
+	}
+	return nil
 }

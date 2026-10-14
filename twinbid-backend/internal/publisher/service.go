@@ -130,7 +130,7 @@ func (s *Service) listCodes(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, a)
 	}
-	reply(w, map[string]any{"items": items, "limit": limit, "offset": offset, "public_script_url": strings.TrimRight(s.Config.PublicURL, "/") + "/static/adManager.js"}, rows.Err())
+	reply(w, map[string]any{"items": items, "limit": limit, "offset": offset, "public_script_url": s.Config.ScriptURL()}, rows.Err())
 }
 func (s *Service) insertCode(ctx context.Context, user string, a c.Code) (Code, error) {
 	if e := a.Validate(); e != nil {

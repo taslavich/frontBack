@@ -25,6 +25,10 @@
 | PATCH `/api/publisher/settings` | полный объект этих трёх настроек | сохранённые настройки |
 | GET `/api/publisher/sync-health` | — | собственный backlog, ready/state; epoch только admin |
 
+`public_script_url`: по умолчанию прежний `/static/adManager.js`; опциональный ENV
+`PUBLISHER_PUBLIC_SCRIPT_URL` выдаёт стабильный HTTPS SDK URL. Атрибут `data-ad-code-id`
+остаётся прежним. См. ANTIBLOCK.md.
+
 `Code`:
 
 ```ts
