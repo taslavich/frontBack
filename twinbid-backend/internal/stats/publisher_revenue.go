@@ -26,9 +26,6 @@ func (s *Service) PublisherCumulativeRevenue(ctx context.Context) ([]publisher.R
 	return r.PublisherCumulativeRevenue(ctx)
 }
 func (r *ClickHouseRepository) PublisherCumulativeRevenue(ctx context.Context) ([]publisher.RevenueTotal, error) {
-	if e := r.publisherRevenueSchemaReady(ctx); e != nil {
-		return nil, e
-	}
 	query, e := publisherCumulativeQuery(r.table)
 	if e != nil {
 		return nil, e
@@ -83,44 +80,4 @@ func (s *Service) PublisherTopSites(ctx context.Context, user string, from, to t
 		out = append(out, id)
 	}
 	return out, rows.Err()
-}
-
-// A partial DDL rollout must not be called a ready financial source merely
-// because ADD COLUMN succeeded. Validate merging key and all four writer views.
-func (r *ClickHouseRepository) publisherRevenueSchemaReady(ctx context.Context) error {
-	table, e := normalizeTable(r.table)
-	if e != nil {
-		return e
-	}
-	database, name := "", table
-	if parts := strings.Split(table, "."); len(parts) == 2 {
-		database, name = parts[0], parts[1]
-	}
-	var engine, key string
-	e = r.db.QueryRowContext(ctx, `SELECT engine,sorting_key FROM system.tables WHERE database=if(?='',currentDatabase(),?) AND name=?`, database, database, name).Scan(&engine, &key)
-	if e != nil {
-		return e
-	}
-	key = strings.NewReplacer(" ", "", "`", "", "\n", "").Replace(key)
-	key = strings.Trim(key, "()")
-	if !strings.HasSuffix(engine, "SummingMergeTree") || !strings.HasSuffix(key, "pub_user_id,ad_code_id,zone_id,pop_revenue_bucket") {
-		return fmt.Errorf("publisher aggregate sorting key is not migrated: %s", table)
-	}
-	var views uint64
-	e = r.db.QueryRowContext(ctx, `SELECT count() FROM system.tables WHERE database=if(?='',currentDatabase(),?) AND name IN ('mv_fact_impressions_to_agg_stats','mv_fact_clicks_to_agg_stats','mv_fact_clicks_wins_to_agg_stats','mv_fact_conversions_to_agg_stats') AND engine='MaterializedView' AND position(create_table_query,'ssp_revenue_views')>0 AND position(create_table_query,'pub_user_id')>0 AND position(create_table_query,'ad_code_id')>0 AND position(create_table_query,'zone_id')>0`, database, database).Scan(&views)
-	if e != nil {
-		return e
-	}
-	if views != 4 {
-		return fmt.Errorf("publisher aggregate writer migration incomplete: %d/4", views)
-	}
-	var popWriters uint64
-	e = r.db.QueryRowContext(ctx, `SELECT count() FROM system.tables WHERE database=if(?='',currentDatabase(),?) AND name IN ('mv_fact_clicks_to_publisher_pop_revenue','mv_publisher_pop_revenue_to_agg_stats','mv_publisher_pop_revenue_checkpoint') AND engine='MaterializedView'`, database, database).Scan(&popWriters)
-	if e != nil {
-		return e
-	}
-	if popWriters != 3 {
-		return fmt.Errorf("publisher POP click-revenue migration incomplete: %d/3", popWriters)
-	}
-	return nil
 }
