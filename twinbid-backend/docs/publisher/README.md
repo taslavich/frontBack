@@ -9,16 +9,18 @@ POP feed, без fallback. Старые advertiser режимы/кампании
 Pub→SSP UUID/HMAC/prewrite/ready→Kafka→CH и zone_id сохранены из REVISED.
 Технический /confirm только запускает interval/session quota после открытия bridge,
 не вызывает BURL и не начисляет деньги. Браузер переходит к тому же ADM/id;
-POP XML извлекается в параметр url того же ADM wrapper. No-fill/blocked open
+Параметры POP, включая XML destination, берутся adapter из Redis; ADM содержит только UUID. No-fill/blocked open
 не расходуют квоту. Первый/второй page click считается JS до аукциона.
 
-Единственная денежная таблица CH — существующая agg_stats. В её конце ключа
-добавлены pub_user_id/ad_code_id/zone_id; новый ssp_revenue_views считает
-sumIf(win_final_price/1000, format='POP' AND pub_user_id!='') в прежней impressions MV.
-Advertiser spend и все прежние формулы/WHERE сохранены. Три остальные writer MV
-и IPP rebuild передают ID с нулём SSP revenue. Recovery SQL не переинтерпретируется:
-те же recovered facts проходят ту же impressions MV. Requests/errors/no-fill
-и lifetime discovery используют прежние компактные проекции, не вторую денежную MV.
+Единственный накопленный денежный агрегат CH — существующий agg_stats с
+pub_user_id/ad_code_id/zone_id. Publisher POP `ssp_revenue_views` начисляется от
+уникального clicks_uuid в fact_clicks (`win_final_price/1000`), то есть обращения
+к /adm. Долговечный реестр событий дедуплицируется ДО денежной суммы; одна native
+refresh task сверяет только dirty UUID-сегменты с aggregate; зависимый checkpoint подтверждает совпадение сумм.
+BURL/recovery сохраняют advertiser impressions/spend, но не дают POP SSP revenue.
+Publisher MVP поддерживает выплаты только POP: другие format buckets показывают counters с revenue=0. Requests/errors/
+no-fill и lifetime discovery остаются в прежних компактных проекциях. Подробности
+и обязательный порядок выкладки UUID-only/DDL — в RTB docs/publisher/FINAL_229.md.
 
 Backend читает деньги и факт-счётчики из agg_stats; errors/requests — из requests
 projection. Весь отчёт имеет разрешение UTC 1 час; effective_from/effective_to
@@ -28,7 +30,7 @@ projection. Весь отчёт имеет разрешение UTC 1 час; ef
 
 Автоматический RunRevenueSync запускается при PUBLISHER_ENABLED. Каждый 30s цикл
 берёт PG advisory transaction lock ДО CH snapshot, проверяет sorting key и все
-четыре writer MV, получает publisher cumulative и атомарно фиксирует checkpoint,
+четыре writer MV и три POP writer/checkpoint MV, получает publisher cumulative и атомарно фиксирует checkpoint,
 publisher_revenue cumulative, delta journal и balance+=delta. Не заменяет баланс
 кумулятивом и не восстанавливает выплаченные деньги при рестарте. Corrections и
 пустой owner в успешно прочитанном полном snapshot дают отрицательную delta;

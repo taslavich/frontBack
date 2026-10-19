@@ -53,6 +53,9 @@ func publisherCumulativeQuery(table string) (string, error) {
 	if e != nil {
 		return "", e
 	}
+	// Only popunder is supported by publisher Code.Validate / runtime today.
+	// BAN/NAT/IPP/VID grouping is analytics, not an authorization to pay formats
+	// that cannot be created or served. PublisherQuery uses this same restriction.
 	// Do not silently discard invalid non-empty ownership. The consumer strictly
 	// validates every returned UUID/amount before any checkpoint or money changes.
 	return `SELECT pub_user_id,toString(round(sum(ssp_revenue_views),8)) FROM ` + table + ` WHERE format='POP' AND pub_user_id!='' GROUP BY pub_user_id ORDER BY pub_user_id`, nil
@@ -100,7 +103,7 @@ func (r *ClickHouseRepository) publisherRevenueSchemaReady(ctx context.Context) 
 	}
 	key = strings.NewReplacer(" ", "", "`", "", "\n", "").Replace(key)
 	key = strings.Trim(key, "()")
-	if !strings.HasSuffix(engine, "SummingMergeTree") || !strings.HasSuffix(key, "pub_user_id,ad_code_id,zone_id") {
+	if !strings.HasSuffix(engine, "SummingMergeTree") || !strings.HasSuffix(key, "pub_user_id,ad_code_id,zone_id,pop_revenue_bucket") {
 		return fmt.Errorf("publisher aggregate sorting key is not migrated: %s", table)
 	}
 	var views uint64
@@ -110,6 +113,14 @@ func (r *ClickHouseRepository) publisherRevenueSchemaReady(ctx context.Context) 
 	}
 	if views != 4 {
 		return fmt.Errorf("publisher aggregate writer migration incomplete: %d/4", views)
+	}
+	var popWriters uint64
+	e = r.db.QueryRowContext(ctx, `SELECT count() FROM system.tables WHERE database=if(?='',currentDatabase(),?) AND name IN ('mv_fact_clicks_to_publisher_pop_revenue','mv_publisher_pop_revenue_to_agg_stats','mv_publisher_pop_revenue_checkpoint') AND engine='MaterializedView'`, database, database).Scan(&popWriters)
+	if e != nil {
+		return e
+	}
+	if popWriters != 3 {
+		return fmt.Errorf("publisher POP click-revenue migration incomplete: %d/3", popWriters)
 	}
 	return nil
 }

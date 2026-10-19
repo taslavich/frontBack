@@ -29,7 +29,7 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 		return out, httpx.BadRequest("invalid timezone")
 	}
 	q.Timezone = tz
-	group := map[string]string{"date": "toString(toDate(event_time,?))", "hour": "formatDateTime(event_time,'%Y-%m-%d %H:%i:00',?)", "country": "geo", "device": "device", "os": "os", "browser": "browser", "site": "site_id", "zone": "zone_id", "ad_code": "ad_code_id"}[q.GroupBy]
+	group := map[string]string{"date": "toString(toDate(event_time,?))", "hour": "formatDateTime(event_time,'%Y-%m-%d %H:%i:00',?)", "country": "geo", "device": "device", "os": "os", "browser": "browser", "site": "site_id", "zone": "zone_id", "ad_code": "ad_code_id", "format": "format"}[q.GroupBy]
 	if group == "" {
 		return out, httpx.BadRequest("invalid group_by")
 	}
@@ -41,6 +41,9 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 	if e != nil {
 		return out, e
 	}
+	// Publisher Code.Validate and the pub runtime accept only popunder. Other
+	// format buckets retain their counters, but must not advertise unpayable
+	// earnings. This is the same eligibility rule as publisherCumulativeQuery.
 	// The source aggregate has hourly resolution. Requests use the same expanded
 	// hour range; no fabricated sub-hour impression/revenue precision is exposed.
 	q.From = q.From.UTC().Truncate(time.Hour)
@@ -55,16 +58,16 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 		return []any{user, q.From, q.To, q.SiteID, q.SiteID, q.ZoneID, q.ZoneID, q.CodeID, q.CodeID}
 	}
 	base := `WITH data AS (
- SELECT event_time,site_id,zone_id,ad_code_id,ifNull(site_domain,'') AS hostname,ifNull(geo,'') AS geo,ifNull(device,'') AS device,ifNull(os,'') AS os,ifNull(browser,'') AS browser,toUInt64(1) AS requests,toUInt64(request_error) AS errors,toUInt64(code=200 AND request_error=0) AS fills,toUInt64(code=204 AND request_error=0) AS no_fills,toUInt64(0) AS impressions,toUInt64(0) AS clicks,toFloat64(0) AS revenue FROM ` + requestsTable + ` WHERE ` + where + `
+ SELECT event_time,site_id,zone_id,ad_code_id,ifNull(site_domain,'') AS hostname,ifNull(geo,'') AS geo,ifNull(device,'') AS device,ifNull(os,'') AS os,ifNull(browser,'') AS browser,format,toUInt64(1) AS requests,toUInt64(request_error) AS errors,toUInt64(code=200 AND request_error=0) AS fills,toUInt64(code=204 AND request_error=0) AS no_fills,toUInt64(0) AS impressions,toUInt64(0) AS clicks,toFloat64(0) AS revenue FROM ` + requestsTable + ` WHERE ` + where + `
  UNION ALL
- SELECT toDateTime64(event_hour,3,'UTC') AS event_time,site_id,zone_id,ad_code_id,'' AS hostname,geo,device_type AS device,os,browser,toUInt64(0),toUInt64(0),toUInt64(0),toUInt64(0),impressions,clicks,ssp_revenue_views AS revenue FROM ` + table + ` WHERE format='POP' AND ` + strings.ReplaceAll(where, "event_time", "event_hour") + `
+ SELECT toDateTime64(event_hour,3,'UTC') AS event_time,site_id,zone_id,ad_code_id,'' AS hostname,geo,device_type AS device,os,browser,format,toUInt64(0),toUInt64(0),toUInt64(0),toUInt64(0),impressions,clicks,if(format='POP',ssp_revenue_views,toFloat64(0)) AS revenue FROM ` + table + ` WHERE format IN ('POP','BAN','NAT','IPP','VID') AND ` + strings.ReplaceAll(where, "event_time", "event_hour") + `
  ) `
 	args := append(argsFor(), argsFor()...)
 	if q.LifetimeRevenueOnly {
 		if q.GroupBy != "site" && q.GroupBy != "zone" && q.GroupBy != "ad_code" {
 			return out, httpx.BadRequest("identity group required for lifetime earnings")
 		}
-		base = `WITH data AS (SELECT toDateTime64(event_hour,3,'UTC') AS event_time,site_id,zone_id,ad_code_id,'' AS hostname,geo,device_type AS device,os,browser,toUInt64(0) AS requests,toUInt64(0) AS errors,toUInt64(0) AS fills,toUInt64(0) AS no_fills,toUInt64(0) AS impressions,toUInt64(0) AS clicks,ssp_revenue_views AS revenue FROM ` + table + ` WHERE format='POP' AND pub_user_id=? AND (?='' OR site_id=?) AND (?='' OR zone_id=?) AND (?='' OR ad_code_id=?)) `
+		base = `WITH data AS (SELECT toDateTime64(event_hour,3,'UTC') AS event_time,site_id,zone_id,ad_code_id,'' AS hostname,geo,device_type AS device,os,browser,format,toUInt64(0) AS requests,toUInt64(0) AS errors,toUInt64(0) AS fills,toUInt64(0) AS no_fills,toUInt64(0) AS impressions,toUInt64(0) AS clicks,if(format='POP',ssp_revenue_views,toFloat64(0)) AS revenue FROM ` + table + ` WHERE format IN ('POP','BAN','NAT','IPP','VID') AND pub_user_id=? AND (?='' OR site_id=?) AND (?='' OR zone_id=?) AND (?='' OR ad_code_id=?)) `
 		args = []any{user, q.SiteID, q.SiteID, q.ZoneID, q.ZoneID, q.CodeID, q.CodeID}
 	}
 	filterSQL := "1=1"
@@ -72,7 +75,7 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 		filterSQL += " AND site_id!='' AND zone_id!=''"
 	}
 	if len(q.BucketIDs) > 0 {
-		column := map[string]string{"site": "site_id", "zone": "zone_id", "ad_code": "ad_code_id"}[q.GroupBy]
+		column := map[string]string{"site": "site_id", "zone": "zone_id", "ad_code": "ad_code_id", "format": "format"}[q.GroupBy]
 		if column == "" || len(q.BucketIDs) > 500 {
 			return out, httpx.BadRequest("invalid inventory buckets")
 		}

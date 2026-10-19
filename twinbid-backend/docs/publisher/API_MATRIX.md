@@ -46,7 +46,7 @@ interface PublisherCodeDTO {
 ```ts
 interface StatsRequest {
   from: string; to: string; // UTC ISO/RFC3339, [from,to), <=366 дней
-  group_by: "date"|"hour"|"country"|"device"|"os"|"browser"|"site"|"zone"|"ad_code";
+  group_by: "date"|"hour"|"country"|"device"|"os"|"browser"|"site"|"zone"|"ad_code"|"format";
   timezone?: string; // отсутствует → timezone профиля
   site_id?: string; zone_id?: string; ad_code_id?: string;
   countries?: string[]; devices?: string[]; oses?: string[]; browsers?: string[];
@@ -130,3 +130,11 @@ sub=BOT_ADMIN_USER_ID, payload {status:'paid'|'canceled',transfer_reference:'...
 payouts и Code diagnostics остаются прежними. Бот не должен вызывать финансовый
 endpoint: он всегда отвечает 409, POP auto sync — единственный producer.
 Bot callbacks/buttons не изменены: исходников нет.
+
+`group_by="format"` возвращает `bucket` = POP/BAN/NAT/IPP/VID. Это группировка
+существующей пользовательской статистики по фактическому формату; четыре
+операционных счётчика остаются в API. Финансовая синхронизация кабинета
+по-прежнему начисляет только POP из `agg_stats.ssp_revenue_views`.
+
+### Payable formats (229 v2)
+internal/pubcontract/contract.go Code.Validate, internal/db/publisher.go ad_codes format CHECK and pub/runtime currently support only `popunder` (`POP`). BAN/NAT/IPP/VID remain valid analytics buckets for counters; their displayed/lifetime revenue is zero and they are not included in balance synchronization. Enabling them requires a separate supported serving/financial contract. Both statistics and cumulative income use the same POP-only eligibility. POP income is reconciled by immutable UUID buckets; three POP writer/checkpoint views and the extended aggregate key must be present before synchronization is ready.
