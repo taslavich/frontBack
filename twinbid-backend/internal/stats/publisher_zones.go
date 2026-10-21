@@ -41,7 +41,7 @@ func zoneCoverageReady(stamps []time.Time, bootstrap, from, to time.Time) bool {
 func (r *ClickHouseRepository) PublisherZoneDiagnostics(ctx context.Context, user string, codes []string, limit, offset int, asof time.Time) (publisher.ZoneDiagnostics, error) {
 	to := asof.UTC().Truncate(time.Second)
 	from := to.Add(-time.Hour)
-	out := publisher.ZoneDiagnostics{Rows: []publisher.ZoneDiagnostic{}, Limit: limit, Offset: offset, WindowFrom: from, WindowTo: to}
+	out := publisher.ZoneDiagnostics{Rows: []publisher.ZoneDiagnostic{}, UndiscoveredCodes: []publisher.UndiscoveredCode{}, Limit: limit, Offset: offset, WindowFrom: from, WindowTo: to}
 	if user == "" || limit < 1 || limit > 500 || offset < 0 || offset > 1000000 {
 		return out, httpx.BadRequest("invalid zone diagnostics request")
 	}
@@ -55,6 +55,39 @@ func (r *ClickHouseRepository) PublisherZoneDiagnostics(ctx context.Context, use
 	registry, e := publisherCompanionTable(r.table, "publisher_inventory")
 	if e != nil {
 		return out, e
+	}
+	// The supplied IDs come from the owner-bound active PG registry. Durable
+	// discovery decides whether a code has ANY known zone, independently of time.
+	discovered, e := r.db.QueryContext(ctx, "SELECT DISTINCT ad_code_id FROM "+registry+" WHERE pub_user_id=? AND ad_code_id IN ? AND site_id!='' AND zone_id!=''", user, codes)
+	if e != nil {
+		return out, e
+	}
+	known := map[string]bool{}
+	for discovered.Next() {
+		var id string
+		if e = discovered.Scan(&id); e != nil {
+			discovered.Close()
+			return out, e
+		}
+		known[id] = true
+	}
+	e = discovered.Err()
+	discovered.Close()
+	if e != nil {
+		return out, e
+	}
+	missing := []string{}
+	seen := map[string]bool{}
+	for _, id := range codes {
+		if !known[id] && !seen[id] {
+			missing = append(missing, id)
+			seen[id] = true
+		}
+	}
+	sort.Strings(missing)
+	out.CodesWithoutZones = uint64(len(missing))
+	for i := offset; i < len(missing) && i < offset+limit; i++ {
+		out.UndiscoveredCodes = append(out.UndiscoveredCodes, publisher.UndiscoveredCode{CodeID: missing[i], Status: "no_zones_detected"})
 	}
 	beats, e := r.db.QueryContext(ctx, `SELECT is_meta,refreshed_at FROM `+table+` FINAL WHERE is_meta>0 AND expires_at>now() AND refreshed_at>=? AND refreshed_at<=? ORDER BY refreshed_at`, from.Add(-10*time.Minute), to)
 	if e != nil {

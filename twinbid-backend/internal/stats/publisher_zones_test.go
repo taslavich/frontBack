@@ -68,8 +68,8 @@ func TestPublisherZonesRealSchema(t *testing.T) {
 		must("SYSTEM " + action + " VIEW " + name + ".mv_publisher_zone_hourly")
 	}
 	end := time.Now().UTC().Add(time.Second)
-	report, e := r.PublisherZoneDiagnostics(ctx, user, []string{"trusted"}, 2, 0, end)
-	if e != nil || len(report.Rows) != 2 || report.ActiveZones != 3 || report.ProblemZones != 2 {
+	report, e := r.PublisherZoneDiagnostics(ctx, user, []string{"trusted", "not-yet-detected"}, 2, 0, end)
+	if e != nil || len(report.Rows) != 2 || report.ActiveZones != 3 || report.ProblemZones != 2 || report.CodesWithoutZones != 1 || len(report.UndiscoveredCodes) != 1 || report.UndiscoveredCodes[0].CodeID != "not-yet-detected" || report.UndiscoveredCodes[0].Status != "no_zones_detected" {
 		t.Fatal(report, e)
 	}
 	second, e := r.PublisherZoneDiagnostics(ctx, user, []string{"trusted"}, 500, 2, end)
@@ -102,6 +102,10 @@ func TestPublisherZonesRealSchema(t *testing.T) {
 		if e != nil || len(v.Rows) != 0 || v.ActiveZones != 0 || v.ProblemZones != 0 {
 			t.Fatal("owner/code leak", v, e)
 		}
+	}
+	empty, e := r.PublisherZoneDiagnostics(ctx, user, []string{"z-missing", "a-missing", "z-missing"}, 1, 1, end)
+	if e != nil || len(empty.Rows) != 0 || empty.ActiveZones != 0 || empty.ProblemZones != 0 || empty.CodesWithoutZones != 2 || len(empty.UndiscoveredCodes) != 1 || empty.UndiscoveredCodes[0].CodeID != "z-missing" {
+		t.Fatal("code-level absence or pagination", empty, e)
 	}
 	// Stale service cannot report success or substitute zeros.
 	if _, e = r.PublisherZoneDiagnostics(ctx, user, []string{"trusted"}, 500, 0, end.Add(2*time.Hour)); e == nil {

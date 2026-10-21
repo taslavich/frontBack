@@ -20,15 +20,23 @@ type ZoneDiagnostic struct {
 	Requests5xx   uint64     `json:"requests_5xx"`
 	LastRequestAt *time.Time `json:"last_request_at"`
 }
+
+// UndiscoveredCode is a code-level observation, never a fabricated zone or HTTP error.
+type UndiscoveredCode struct {
+	CodeID string `json:"ad_code_id"`
+	Status string `json:"status"`
+}
 type ZoneDiagnostics struct {
-	Rows         []ZoneDiagnostic `json:"rows"`
-	ActiveZones  uint64           `json:"active_zones"`
-	ProblemZones uint64           `json:"problem_zones"`
-	Limit        int              `json:"limit"`
-	Offset       int              `json:"offset"`
-	WindowFrom   time.Time        `json:"window_from"`
-	WindowTo     time.Time        `json:"window_to"`
-	RefreshedAt  time.Time        `json:"refreshed_at"`
+	CodesWithoutZones uint64             `json:"codes_without_zones"`
+	UndiscoveredCodes []UndiscoveredCode `json:"undiscovered_codes"`
+	Rows              []ZoneDiagnostic   `json:"rows"`
+	ActiveZones       uint64             `json:"active_zones"`
+	ProblemZones      uint64             `json:"problem_zones"`
+	Limit             int                `json:"limit"`
+	Offset            int                `json:"offset"`
+	WindowFrom        time.Time          `json:"window_from"`
+	WindowTo          time.Time          `json:"window_to"`
+	RefreshedAt       time.Time          `json:"refreshed_at"`
 }
 type ZoneReporter interface {
 	PublisherZoneDiagnostics(context.Context, string, []string, int, int, time.Time) (ZoneDiagnostics, error)

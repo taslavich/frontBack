@@ -145,13 +145,14 @@ func (s *Service) inventory(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, e)
 		return
 	}
-	// Recent activity is scoped to six months; earned aggregate revenue is lifetime.
+	// Advertising metrics retain six months; request counters have only the
+	// seven-day diagnostic retention. Earned aggregate revenue remains lifetime.
 	bucketIDs := []string{}
 	for _, item := range items {
 		bucketIDs = append(bucketIDs, item.Bucket)
 	}
 	if len(items) == 0 {
-		reply(w, map[string]any{"rows": items, "limit": limit, "offset": offset, "metric_period": "last_6_months", "revenue_period": "lifetime"}, nil)
+		reply(w, map[string]any{"rows": items, "limit": limit, "offset": offset, "metric_period": "last_6_months", "metric_period_scope": "impressions_clicks_ctr", "request_metric_period": "last_7_days", "request_metric_source": "publisher_zone_hourly", "advertising_metric_source": "agg_stats", "revenue_period": "lifetime"}, nil)
 		return
 	}
 	metricReport, err := s.report(r.Context(), auth.UserID(r), StatsRequest{From: time.Now().UTC().AddDate(0, -6, 0), To: time.Now().UTC(), GroupBy: group, Timezone: "UTC", SiteID: r.URL.Query().Get("site_id"), CodeID: r.URL.Query().Get("ad_code_id"), Limit: 500, BucketIDs: bucketIDs})
@@ -174,7 +175,7 @@ func (s *Service) inventory(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range items {
 		items[i].Revenue = "0"
-		items[i].MetricsStatus = "last_6_months"
+		items[i].MetricsStatus = "mixed_periods"
 		if value, ok := metrics[items[i].Bucket]; ok {
 			items[i].Metrics = value
 		} else {
@@ -185,7 +186,7 @@ func (s *Service) inventory(w http.ResponseWriter, r *http.Request) {
 			items[i].Revenue = "0"
 		}
 	}
-	reply(w, map[string]any{"rows": items, "limit": limit, "offset": offset, "metric_period": "last_6_months", "revenue_period": "lifetime"}, nil)
+	reply(w, map[string]any{"rows": items, "limit": limit, "offset": offset, "metric_period": "last_6_months", "metric_period_scope": "impressions_clicks_ctr", "request_metric_period": "last_7_days", "request_metric_source": "publisher_zone_hourly", "advertising_metric_source": "agg_stats", "revenue_period": "lifetime"}, nil)
 }
 func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 	q := StatsRequest{From: time.Now().UTC().Add(-7 * 24 * time.Hour), To: time.Now().UTC(), GroupBy: "site", Limit: 5}

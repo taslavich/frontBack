@@ -139,3 +139,15 @@ Bot callbacks/buttons не изменены: исходников нет.
 
 ### Payable formats (229 v2)
 internal/pubcontract/contract.go Code.Validate, internal/db/publisher.go ad_codes format CHECK and pub/runtime currently support only `popunder` (`POP`). BAN/NAT/IPP/VID remain valid analytics buckets for counters; their displayed/lifetime revenue is zero and they are not included in balance synchronization. Enabling them requires a separate supported serving/financial contract. Both statistics and cumulative income use the same POP-only eligibility. POP income is reconciled by immutable UUID buckets; three POP writer/checkpoint views and the extended aggregate key must be present before synchronization is ready.
+
+
+Hardening proj234/FProj234: ZoneDiagnostics дополнительно содержит `codes_without_zones` и
+`undiscovered_codes: [{ad_code_id,status:"no_zones_detected"}]`. Это отдельные коды из активного
+PG-реестра владельца, не фиктивные проблемные зоны и не подтверждение HTTP-ошибки.
+Оба списка используют limit/offset независимо; summary всегда глобальный.
+
+Inventory: `metric_period:"last_6_months"` сохранён как legacy alias только для
+`metric_period_scope:"impressions_clicks_ctr"` из `advertising_metric_source:"agg_stats"`.
+`request_metric_period:"last_7_days"`, `request_metric_source:"publisher_zone_hourly"` описывают
+ограниченную техническую историю; `revenue_period:"lifetime"` не меняется. Row metrics_status
+с данными — mixed_periods. Подробности: [ZONE_DIAGNOSTICS_FINAL.md](ZONE_DIAGNOSTICS_FINAL.md).
