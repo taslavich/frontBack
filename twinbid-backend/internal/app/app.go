@@ -57,11 +57,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = pg.Close()
 		return nil, fmt.Errorf("smart percenter schema: %w", err)
 	}
-	if cfg.Publisher.Enabled {
-		if err := db.EnsurePublisherSchema(ctx, pg); err != nil {
-			pg.Close()
-			return nil, fmt.Errorf("publisher schema: %w", err)
-		}
+	if err := db.EnsurePublisherSchema(ctx, pg); err != nil {
+		_ = pg.Close()
+		return nil, fmt.Errorf("publisher schema: %w", err)
 	}
 	log.Println("✅ Connected to Postgres")
 
@@ -101,18 +99,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// Validate Publisher Redis before starting HTTP or any background workers.
 	// Unlike POP recovery, Publisher configuration sync must not start in
 	// a degraded state when its Redis is unavailable or misconfigured.
-	var pubSvc *publisher.Service
-	var pubRedis redis.UniversalClient
-	if cfg.Publisher.Enabled {
-		pubRedis, err = requirePublisherRedis(ctx, cfg.Publisher)
-		if err != nil {
-			_ = recoveryRedis.Close()
-			_ = statsSvc.Close()
-			_ = pg.Close()
-			return nil, err
-		}
-		pubSvc = publisher.New(pg, pubRedis, statsSvc, cfg.Publisher, cfg.Bot)
+	pubRedis, err := requirePublisherRedis(ctx, cfg.Publisher)
+	if err != nil {
+		_ = recoveryRedis.Close()
+		_ = statsSvc.Close()
+		_ = pg.Close()
+		return nil, err
 	}
+	pubSvc := publisher.New(pg, pubRedis, statsSvc, cfg.Publisher, cfg.Bot)
 
 	authRepo := auth.NewRepository(pg)
 	authSvc := auth.NewService(authRepo, cfg.JWT, cfg.SMTP)
@@ -228,16 +222,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runCampaignCompletedTicker(ctx, pg, cfg, campaignSvc)
 	go runWaitingCampaignStartTicker(ctx, pg, campaignSvc)
 	go runNightCampaignAutoApproval(ctx, campaignSvc)
-	if pubSvc != nil {
-		go pubSvc.Run(ctx)
-		go pubSvc.RunRevenueSync(ctx)
-	}
+	go pubSvc.Run(ctx)
+	go pubSvc.RunRevenueSync(ctx)
 	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler, pubSvc)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, RecoveryRedis: recoveryRedis, PublisherRedis: pubRedis, Router: r}, nil
 }
 
-// requirePublisherRedis enforces an explicit, reachable Publisher Redis only
-// when Publisher is enabled. A failed probe closes the client and prevents
+// requirePublisherRedis enforces an explicit, reachable Publisher Redis on
+// every backend startup. A failed probe closes the client and prevents
 // the backend from accepting requests with an unsynchronised ad-code cache.
 func requirePublisherRedis(ctx context.Context, cfg publisherconfig.Config) (redis.UniversalClient, error) {
 	client, err := cfg.Redis()
@@ -250,7 +242,7 @@ func requirePublisherRedis(ctx context.Context, cfg publisherconfig.Config) (red
 		_ = client.Close()
 		return nil, fmt.Errorf("publisher Redis unavailable at startup (PUBLISHER_REDIS_ADDRS=%s): %w", cfg.RedisAddrs, err)
 	}
-	log.Printf("Publisher Redis ready: PUBLISHER_REDIS_ADDRS=%s", cfg.RedisAddrs)
+	log.Printf("Publisher Redis ready: PUBLISHER_REDIS_ADDRS=%s db=%d", cfg.RedisAddrs, cfg.RedisDB)
 	return client, nil
 }
 

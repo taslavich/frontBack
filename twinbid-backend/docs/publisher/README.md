@@ -28,7 +28,7 @@ projection. Весь отчёт имеет разрешение UTC 1 час; ef
 нормализуются в publisher reports. IANA часовые метки показывают начало UTC bucket
 в локальной зоне; границы субчасовых/local-day buckets из hour aggregate не восстанавливаются.
 
-Автоматический RunRevenueSync запускается при PUBLISHER_ENABLED. Каждый 30s цикл
+Автоматический RunRevenueSync запускается всегда. Каждый 30s цикл
 берёт PG advisory transaction lock ДО CH snapshot, проверяет sorting key и все
 четыре writer MV и три POP writer/checkpoint MV, получает publisher cumulative и атомарно фиксирует checkpoint,
 publisher_revenue cumulative, delta journal и balance+=delta. Не заменяет баланс

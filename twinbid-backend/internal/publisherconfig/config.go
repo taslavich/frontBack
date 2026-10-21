@@ -14,8 +14,8 @@ import (
 type Config struct {
 	RedisCluster        bool          `env:"PUBLISHER_REDIS_CLUSTER" env-default:"false"`
 	RedisUsername       string        `env:"PUBLISHER_REDIS_USERNAME"`
-	Enabled             bool          `env:"PUBLISHER_ENABLED" env-default:"false"`
 	RedisAddrs          string        `env:"PUBLISHER_REDIS_ADDRS"`
+	RedisDB             int           `env:"PUBLISHER_REDIS_DB" env-default:"-1"`
 	RedisPassword       string        `env:"PUBLISHER_REDIS_PASSWORD"`
 	RedisTLS            bool          `env:"PUBLISHER_REDIS_TLS" env-default:"false"`
 	PublicURL           string        `env:"PUBLISHER_PUBLIC_URL"`
@@ -40,7 +40,16 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 		return nil, errors.New("publisher revenue sync interval/timeout must be >0 and <=5m")
 	}
 	if strings.TrimSpace(c.RedisAddrs) == "" {
-		return nil, errors.New("PUBLISHER_REDIS_ADDRS is required when PUBLISHER_ENABLED=true")
+		return nil, errors.New("PUBLISHER_REDIS_ADDRS is required")
+	}
+	if c.RedisDB < 0 {
+		return nil, errors.New("PUBLISHER_REDIS_DB must be explicitly set to a non-negative Redis database number")
+	}
+	if c.RedisDB == 5 {
+		return nil, errors.New("PUBLISHER_REDIS_DB=5 is reserved for advertiser POP recovery")
+	}
+	if c.RedisCluster && c.RedisDB != 0 {
+		return nil, errors.New("Redis Cluster only supports DB 0; use standalone Redis for Publisher database isolation")
 	}
 	a := strings.Split(c.RedisAddrs, ",")
 	for i := range a {
@@ -49,7 +58,7 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 			return nil, errors.New("PUBLISHER_REDIS_ADDRS contains empty address")
 		}
 	}
-	o := &redis.UniversalOptions{Addrs: a, Password: c.RedisPassword, Username: c.RedisUsername, DB: 0, ReadTimeout: time.Second, WriteTimeout: time.Second, PoolSize: 128}
+	o := &redis.UniversalOptions{Addrs: a, Password: c.RedisPassword, Username: c.RedisUsername, DB: c.RedisDB, ReadTimeout: time.Second, WriteTimeout: time.Second, PoolSize: 128}
 	if c.RedisTLS {
 		o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
