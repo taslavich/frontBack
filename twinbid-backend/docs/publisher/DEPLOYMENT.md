@@ -5,7 +5,13 @@
 publisher views; развернуть DDL и новые Kafka/CH readers до включения pub.
 Не менять TTL, spend/recovery/auction алгоритмы. Миграция требует существующего
 окна обслуживания, так как CreateDB пересоздаёт refreshable views.
-3. Backend: `PUBLISHER_ENABLED=true`; Redis конфигурации должен совпадать с pub.
+3. Backend: `PUBLISHER_ENABLED=true`; задайте `PUBLISHER_REDIS_ADDRS` (без
+   автоматического fallback на localhost) и нужные credentials/TLS. При старте
+   backend проверяет Publisher Redis через PING с timeout 3s; при отсутствии
+   настройки или недоступности Redis процесс НЕ запускается. Можно использовать
+   существующий Redis сервер, если Publisher DB 0 доступна; отдельный инстанс
+   не требуется. При `PUBLISHER_ENABLED=false` эта проверка не выполняется.
+   Redis конфигурации должен совпадать с pub.
 SQL schema и восстановление/ready guards — существующая процедура publisher sync.
 4. Зарегистрировать два разных feed token в обычных POP ADULT/MAINSTREAM maps,
 указанных `SSP_FEEDS_POP_ADULT_FILE_PATH` / `SSP_FEEDS_POP_MAINSTREAM_FILE_PATH`.

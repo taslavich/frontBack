@@ -15,7 +15,7 @@ type Config struct {
 	RedisCluster        bool          `env:"PUBLISHER_REDIS_CLUSTER" env-default:"false"`
 	RedisUsername       string        `env:"PUBLISHER_REDIS_USERNAME"`
 	Enabled             bool          `env:"PUBLISHER_ENABLED" env-default:"false"`
-	RedisAddrs          string        `env:"PUBLISHER_REDIS_ADDRS" env-default:"127.0.0.1:6379"`
+	RedisAddrs          string        `env:"PUBLISHER_REDIS_ADDRS"`
 	RedisPassword       string        `env:"PUBLISHER_REDIS_PASSWORD"`
 	RedisTLS            bool          `env:"PUBLISHER_REDIS_TLS" env-default:"false"`
 	PublicURL           string        `env:"PUBLISHER_PUBLIC_URL"`
@@ -38,6 +38,9 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 	}
 	if c.RevenueSyncInterval <= 0 || c.RevenueSyncInterval > 5*time.Minute || c.RevenueSyncTimeout <= 0 || c.RevenueSyncTimeout > 5*time.Minute {
 		return nil, errors.New("publisher revenue sync interval/timeout must be >0 and <=5m")
+	}
+	if strings.TrimSpace(c.RedisAddrs) == "" {
+		return nil, errors.New("PUBLISHER_REDIS_ADDRS is required when PUBLISHER_ENABLED=true")
 	}
 	a := strings.Split(c.RedisAddrs, ",")
 	for i := range a {
