@@ -179,7 +179,19 @@ func Load(ctx context.Context) (*Config, error) {
 	if err := cleanenv.ReadEnv(&cfg); err != nil {
 		return nil, err
 	}
+	inheritPublisherRedisPassword(&cfg)
 	return &cfg, nil
+}
+
+// Publisher and POP recovery can use the same Redis server with separate
+// logical DBs. Reuse the already configured password for that exact endpoint,
+// unless a Publisher-specific password has been supplied. This avoids
+// duplicating the existing REDIS_PASSWORD secret in api.env.
+func inheritPublisherRedisPassword(cfg *Config) {
+	if strings.TrimSpace(cfg.Publisher.RedisAddrs) == strings.TrimSpace(cfg.POPRecovery.RedisAddr) &&
+		strings.TrimSpace(cfg.Publisher.RedisAddrs) != "" && cfg.Publisher.RedisPassword == "" {
+		cfg.Publisher.RedisPassword = cfg.POPRecovery.RedisPassword
+	}
 }
 
 type SpendSyncConfig struct {
