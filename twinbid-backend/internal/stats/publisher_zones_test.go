@@ -10,31 +10,6 @@ import (
 	"time"
 )
 
-func TestZoneCoverage(t *testing.T) {
-	end := time.Date(2026, 10, 1, 12, 30, 0, 0, time.UTC)
-	start := end.Add(-time.Hour)
-	beats := []time.Time{}
-	for i := 0; i <= 12; i++ {
-		beats = append(beats, start.Add(time.Duration(i)*5*time.Minute))
-	}
-	if !zoneCoverageReady(beats, time.Time{}, start, end) {
-		t.Fatal("healthy chain rejected")
-	}
-	if zoneCoverageReady(nil, time.Time{}, start, end) {
-		t.Fatal("empty accepted")
-	}
-	if zoneCoverageReady(beats[:8], time.Time{}, start, end) {
-		t.Fatal("stale accepted")
-	}
-	gap := append(append([]time.Time{}, beats[:2]...), beats[6:]...)
-	if zoneCoverageReady(gap, time.Time{}, start, end) {
-		t.Fatal("gap accepted")
-	}
-	if !zoneCoverageReady(beats[10:], end.Add(-10*time.Minute), start, end) {
-		t.Fatal("bootstrap rejected")
-	}
-}
-
 // The integration runner prepares this database with CreateDB from the RTB
 // project. These tests query its actual schema instead of a test-only variant.
 func TestPublisherZonesRealSchema(t *testing.T) {
@@ -107,8 +82,15 @@ func TestPublisherZonesRealSchema(t *testing.T) {
 	if e != nil || len(empty.Rows) != 0 || empty.ActiveZones != 0 || empty.ProblemZones != 0 || empty.CodesWithoutZones != 2 || len(empty.UndiscoveredCodes) != 1 || empty.UndiscoveredCodes[0].CodeID != "z-missing" {
 		t.Fatal("code-level absence or pagination", empty, e)
 	}
-	// Stale service cannot report success or substitute zeros.
-	if _, e = r.PublisherZoneDiagnostics(ctx, user, []string{"trusted"}, 500, 0, end.Add(2*time.Hour)); e == nil {
-		t.Fatal("stale diagnostics accepted")
+	// The same zones without successful 200/204 responses in the requested hour
+	// must be reported as problems even when all refresh heartbeats are stale.
+	stale, e := r.PublisherZoneDiagnostics(ctx, user, []string{"trusted"}, 500, 0, end.Add(2*time.Hour))
+	if e != nil || stale.ActiveZones != 0 || stale.ProblemZones != 5 || len(stale.Rows) != 5 {
+		t.Fatal("no-data hour must be a successful empty-count response", stale, e)
+	}
+	for _, z := range stale.Rows {
+		if z.Status != "problem" || z.Requests200 != 0 || z.Requests204 != 0 {
+			t.Fatal("unexpected traffic in empty hour", z)
+		}
 	}
 }

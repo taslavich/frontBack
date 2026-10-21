@@ -36,7 +36,7 @@ type ZoneDiagnostics struct {
 	Offset            int                `json:"offset"`
 	WindowFrom        time.Time          `json:"window_from"`
 	WindowTo          time.Time          `json:"window_to"`
-	RefreshedAt       time.Time          `json:"refreshed_at"`
+	RefreshedAt       string             `json:"refreshed_at"`
 }
 type ZoneReporter interface {
 	PublisherZoneDiagnostics(context.Context, string, []string, int, int, time.Time) (ZoneDiagnostics, error)

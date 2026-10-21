@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -61,5 +62,17 @@ func TestZoneStatus(t *testing.T) {
 		if ZoneStatus(tc.a, tc.b) != tc.want {
 			t.Fatal(tc)
 		}
+	}
+}
+
+// Empty diagnostic coverage must be representable without a synthetic refresh
+// time and without requiring a frontend contract change.
+func TestZoneDiagnosticsEmptyRefreshTimestamp(t *testing.T) {
+	data, err := json.Marshal(ZoneDiagnostics{Rows: []ZoneDiagnostic{}, RefreshedAt: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"refreshed_at":""`) {
+		t.Fatal("unknown refresh must be encoded as an empty string", string(data))
 	}
 }

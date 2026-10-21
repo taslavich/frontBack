@@ -17,27 +17,6 @@ func (s *Service) PublisherZoneDiagnostics(ctx context.Context, user string, cod
 	return r.PublisherZoneDiagnostics(ctx, user, codes, limit, offset, asof)
 }
 
-// Coverage heartbeats acknowledge a previous successful refresh, never their
-// own possibly partial APPEND. A source
-// TTL of one hour cannot repair a long outage. Fail closed on stale/gapped data.
-func zoneCoverageReady(stamps []time.Time, bootstrap, from, to time.Time) bool {
-	sort.Slice(stamps, func(i, j int) bool { return stamps[i].Before(stamps[j]) })
-	cursor := from
-	if !bootstrap.IsZero() && !bootstrap.Before(from) && !bootstrap.After(to) {
-		cursor = bootstrap
-	}
-	for _, t := range stamps {
-		if t.Before(cursor) {
-			continue
-		}
-		if t.Sub(cursor) > 10*time.Minute {
-			return false
-		}
-		cursor = t
-	}
-	return to.Sub(cursor) <= 10*time.Minute
-}
-
 func (r *ClickHouseRepository) PublisherZoneDiagnostics(ctx context.Context, user string, codes []string, limit, offset int, asof time.Time) (publisher.ZoneDiagnostics, error) {
 	to := asof.UTC().Truncate(time.Second)
 	from := to.Add(-time.Hour)
@@ -89,35 +68,25 @@ func (r *ClickHouseRepository) PublisherZoneDiagnostics(ctx context.Context, use
 	for i := offset; i < len(missing) && i < offset+limit; i++ {
 		out.UndiscoveredCodes = append(out.UndiscoveredCodes, publisher.UndiscoveredCode{CodeID: missing[i], Status: "no_zones_detected"})
 	}
-	beats, e := r.db.QueryContext(ctx, `SELECT is_meta,refreshed_at FROM `+table+` FINAL WHERE is_meta>0 AND expires_at>now() AND refreshed_at>=? AND refreshed_at<=? ORDER BY refreshed_at`, from.Add(-10*time.Minute), to)
+	// Refresh timestamps are informational only. A missing, stale or interrupted
+	// refresh history never blocks diagnostics: an empty result is valid.
+	// Keep the latest recorded refresh for the existing frontend's "Updated" label.
+	refreshes, e := r.db.QueryContext(ctx, `SELECT refreshed_at FROM `+table+` FINAL WHERE is_meta>0 AND expires_at>now() ORDER BY refreshed_at DESC LIMIT 1`)
 	if e != nil {
 		return out, e
 	}
-	stamps := []time.Time{}
-	var boot time.Time
-	for beats.Next() {
-		var kind uint8
+	for refreshes.Next() {
 		var stamp time.Time
-		if e = beats.Scan(&kind, &stamp); e != nil {
-			beats.Close()
+		if e = refreshes.Scan(&stamp); e != nil {
+			refreshes.Close()
 			return out, e
 		}
-		if kind == 2 {
-			boot = stamp
-		} else {
-			stamps = append(stamps, stamp)
-		}
-		if stamp.After(out.RefreshedAt) {
-			out.RefreshedAt = stamp
-		}
+		out.RefreshedAt = stamp.UTC().Format(time.RFC3339Nano)
 	}
-	e = beats.Err()
-	beats.Close()
+	e = refreshes.Err()
+	refreshes.Close()
 	if e != nil {
 		return out, e
-	}
-	if !zoneCoverageReady(stamps, boot, from, to) {
-		return out, httpx.ServiceUnavailable("zone diagnostics refresh is stale or incomplete")
 	}
 	base := `WITH inventory AS (
  SELECT ad_code_id,zone_id,site_id,argMax(hostname,last_request_at) AS hostname,max(last_request_at) AS known_last_request_at
