@@ -13,7 +13,6 @@ import (
 
 type Config struct {
 	RedisCluster        bool          `env:"PUBLISHER_REDIS_CLUSTER" env-default:"false"`
-	RedisUsername       string        `env:"PUBLISHER_REDIS_USERNAME"`
 	RedisAddrs          string        `env:"PUBLISHER_REDIS_ADDRS"`
 	RedisDB             int           `env:"PUBLISHER_REDIS_DB" env-default:"-1"`
 	RedisPassword       string        `env:"PUBLISHER_REDIS_PASSWORD"`
@@ -58,12 +57,12 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 			return nil, errors.New("PUBLISHER_REDIS_ADDRS contains empty address")
 		}
 	}
-	o := &redis.UniversalOptions{Addrs: a, Password: c.RedisPassword, Username: c.RedisUsername, DB: c.RedisDB, ReadTimeout: time.Second, WriteTimeout: time.Second, PoolSize: 128}
+	o := &redis.UniversalOptions{Addrs: a, Password: c.RedisPassword, DB: c.RedisDB, ReadTimeout: time.Second, WriteTimeout: time.Second, PoolSize: 128}
 	if c.RedisTLS {
 		o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	if c.RedisCluster {
-		return redis.NewClusterClient(&redis.ClusterOptions{Addrs: a, Username: c.RedisUsername, Password: c.RedisPassword, TLSConfig: o.TLSConfig, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout, PoolSize: o.PoolSize}), nil
+		return redis.NewClusterClient(&redis.ClusterOptions{Addrs: a, Password: c.RedisPassword, TLSConfig: o.TLSConfig, ReadTimeout: o.ReadTimeout, WriteTimeout: o.WriteTimeout, PoolSize: o.PoolSize}), nil
 	}
 	return redis.NewUniversalClient(o), nil
 }
