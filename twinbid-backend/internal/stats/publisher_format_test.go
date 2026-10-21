@@ -41,7 +41,7 @@ func TestPublisherFormatGroupingRealSchema(t *testing.T) {
 		if _, e = db.ExecContext(ctx, "INSERT INTO "+dbName+".agg_stats(win_user_id,event_date,event_hour,format,pub_user_id,site_id,ad_code_id,zone_id,impressions,clicks,ssp_revenue_views) VALUES('advertiser',?,?,?,?, 'site','code','zone',?,?,?)", now, now, format, owner, uint64(100*(i+1)), seededClicks, seededRevenue); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = db.ExecContext(ctx, "INSERT INTO "+dbName+".ortb(uuid,event_time,code,format,pub_user_id,ad_code_id,zone_id,site_id,request_id,logical_event_id) VALUES(?,?,200,?,?,'code','zone','site',?,?)", uuid.NewString(), now.Add(time.Minute), format, owner, uuid.NewString(), uuid.NewString()); e != nil {
+		if _, e = db.ExecContext(ctx, "INSERT INTO "+dbName+".ortb(uuid,event_time,code,format,pub_user_id,ad_code_id,zone_id,site_id,request_id,logical_event_id) VALUES(?,?,200,?,?,'code','zone','site',?,?)", uuid.NewString(), time.Now().UTC().Add(-time.Second), format, owner, uuid.NewString(), uuid.NewString()); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -57,6 +57,11 @@ func TestPublisherFormatGroupingRealSchema(t *testing.T) {
 			if _, e = db.ExecContext(ctx, "SYSTEM "+action+" VIEW "+dbName+"."+view); e != nil {
 				t.Fatal(e)
 			}
+		}
+	}
+	for _, action := range []string{"REFRESH", "WAIT"} {
+		if _, e = db.ExecContext(ctx, "SYSTEM "+action+" VIEW "+dbName+".mv_publisher_zone_hourly"); e != nil {
+			t.Fatal(e)
 		}
 	}
 	q := publisher.StatsRequest{From: now.Add(5 * time.Minute), To: now.Add(45 * time.Minute), GroupBy: "format", Timezone: "Asia/Shanghai", Limit: 2}

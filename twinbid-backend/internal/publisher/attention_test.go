@@ -13,25 +13,25 @@ type inventoryPages struct {
 	seen              []int
 }
 
-func (p *inventoryPages) PublisherInventory(ctx context.Context, user, group, site, code string, limit, offset int) ([]Row, error) {
+func (p *inventoryPages) PublisherZoneDiagnostics(ctx context.Context, user string, codes []string, limit, offset int, asof time.Time) (ZoneDiagnostics, error) {
 	if user != "owner" || limit != 500 {
 		panic("invalid owner/page")
 	}
 	p.seen = append(p.seen, offset)
 	if offset == p.failOffset {
-		return nil, errors.New("CH outage")
+		return ZoneDiagnostics{}, errors.New("CH outage")
 	}
-	out := []Row{}
-	old := time.Now().Add(-10 * time.Minute)
+	out := []ZoneDiagnostic{}
+	old := time.Now().Add(-2 * time.Hour)
 	for i := offset; i < p.count && i < offset+limit; i++ {
-		out = append(out, Row{CodeID: "code", Hostname: fmt.Sprint(i), LastRequestAt: &old})
+		out = append(out, ZoneDiagnostic{CodeID: "code", Hostname: fmt.Sprint(i), LastRequestAt: &old, Status: "problem"})
 	}
-	return out, nil
+	return ZoneDiagnostics{Rows: out}, nil
 }
 func TestAttentionPages(t *testing.T) {
 	for _, n := range []int{0, 499, 500, 501, 1501} {
 		p := &inventoryPages{count: n, failOffset: -1}
-		known, missing, e := attentionInventory(context.Background(), p, "owner")
+		known, missing, e := attentionInventory(context.Background(), p, "owner", []string{"code"})
 		if e != nil || len(missing["code"]) != n {
 			t.Fatal(n, len(missing["code"]), e)
 		}
@@ -44,7 +44,7 @@ func TestAttentionPages(t *testing.T) {
 		}
 	}
 	p := &inventoryPages{count: 1000, failOffset: 500}
-	if _, _, e := attentionInventory(context.Background(), p, "owner"); e == nil {
+	if _, _, e := attentionInventory(context.Background(), p, "owner", []string{"code"}); e == nil {
 		t.Fatal("partial outage accepted")
 	}
 }

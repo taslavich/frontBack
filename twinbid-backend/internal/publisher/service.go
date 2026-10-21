@@ -58,6 +58,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/api/publisher/sites", s.inventory)
 	r.Get("/api/publisher/zones", s.inventory)
 	r.Get("/api/publisher/overview", s.overview)
+	r.Get("/api/publisher/zone-diagnostics", s.zoneDiagnostics)
 	r.Post("/api/publisher/stats/query", s.queryStats)
 	r.Get("/api/publisher/balance", s.balance)
 	r.Get("/api/publisher/payouts", s.listPayouts)

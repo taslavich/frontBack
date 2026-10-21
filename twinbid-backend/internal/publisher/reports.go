@@ -297,13 +297,29 @@ func (s *Service) Notify(ctx context.Context) error {
 		if prefs.CodeAlerts != nil && !*prefs.CodeAlerts {
 			continue
 		}
-		provider, ok := s.Reports.(interface {
-			PublisherInventory(context.Context, string, string, string, string, int, int) ([]Row, error)
-		})
+		provider, ok := s.Reports.(ZoneReporter)
 		if !ok {
-			return fmt.Errorf("attention inventory unavailable")
+			return fmt.Errorf("zone attention unavailable")
 		}
-		known, missing, e := attentionInventory(ctx, provider, user)
+		codeRows, err := conn.QueryContext(ctx, `SELECT ad_code_id::text FROM ad_codes WHERE user_id=$1 AND is_active AND archived_at IS NULL`, user)
+		if err != nil {
+			return err
+		}
+		codes := []string{}
+		for codeRows.Next() {
+			var id string
+			if err = codeRows.Scan(&id); err != nil {
+				codeRows.Close()
+				return err
+			}
+			codes = append(codes, id)
+		}
+		err = codeRows.Err()
+		codeRows.Close()
+		if err != nil {
+			return err
+		}
+		known, missing, e := attentionInventory(ctx, provider, user, codes)
 		if e != nil {
 			return e
 		}
@@ -358,64 +374,51 @@ func (s *Service) userNotice(ctx context.Context, conn *sql.Conn, user, key, tex
 	return e
 }
 
-type Diagnostic struct {
-	RequestID string    `json:"request_id"`
-	SiteID    string    `json:"site_id"`
-	ZoneID    string    `json:"zone_id"`
-	Hostname  string    `json:"hostname"`
-	EventTime time.Time `json:"event_time"`
-	Code      uint16    `json:"response_code"`
-	Error     bool      `json:"error"`
-	Reason    string    `json:"reason"`
-}
-
 func (s *Service) diagnostics(w http.ResponseWriter, r *http.Request) {
 	code, e := s.ownerCode(r)
 	if e != nil {
 		reply(w, nil, e)
 		return
 	}
-	reporter, ok := s.Reports.(interface {
-		PublisherDiagnosis(context.Context, string, string) ([]Diagnostic, error)
-	})
-	if !ok {
-		reply(w, nil, httpx.ServiceUnavailable("diagnostics unavailable"))
-		return
-	}
-	events, e := reporter.PublisherDiagnosis(r.Context(), auth.UserID(r), code.ID)
+	limit, offset, e := pagination(r)
 	if e != nil {
 		reply(w, nil, e)
 		return
 	}
-	ready, redisErr := s.Redis.Get(r.Context(), "twinbid:publisher:v1:{control}:ready").Result()
-	reply(w, map[string]any{"ad_code": code, "events": events, "runtime_ready": redisErr == nil && ready != ""}, nil)
+	report, e := s.zoneReport(r.Context(), auth.UserID(r), code.ID, limit, offset)
+	if e != nil {
+		reply(w, nil, e)
+		return
+	}
+	ready := false
+	if s.Redis != nil {
+		v, err := s.Redis.Get(r.Context(), "twinbid:publisher:v1:{control}:ready").Result()
+		ready = err == nil && v != ""
+	}
+	reply(w, map[string]any{"ad_code": code, "zones": report, "runtime_ready": ready}, nil)
 }
 
 // Consume bounded pages before acting on attention/recovery. An incomplete
 // page sequence is an error, never evidence that all sites recovered.
-func attentionInventory(ctx context.Context, provider interface {
-	PublisherInventory(context.Context, string, string, string, string, int, int) ([]Row, error)
-}, user string) (map[string]bool, map[string][]string, error) {
+func attentionInventory(ctx context.Context, provider ZoneReporter, user string, codes []string) (map[string]bool, map[string][]string, error) {
 	known := map[string]bool{}
 	missing := map[string][]string{}
+	asof := time.Now().UTC()
 	for offset := 0; ; offset += 500 {
 		if e := ctx.Err(); e != nil {
 			return nil, nil, e
 		}
-		zones, e := provider.PublisherInventory(ctx, user, "zone", "", "", 500, offset)
+		report, e := provider.PublisherZoneDiagnostics(ctx, user, codes, 500, offset, asof)
 		if e != nil {
 			return nil, nil, e
 		}
-		for _, z := range zones {
-			if z.CodeID == "" || z.LastRequestAt == nil {
-				continue
-			}
+		for _, z := range report.Rows {
 			known[z.CodeID] = true
-			if time.Since(*z.LastRequestAt) > 5*time.Minute {
+			if z.Status == "problem" {
 				missing[z.CodeID] = append(missing[z.CodeID], z.Hostname)
 			}
 		}
-		if len(zones) < 500 {
+		if len(report.Rows) < 500 {
 			break
 		}
 	}

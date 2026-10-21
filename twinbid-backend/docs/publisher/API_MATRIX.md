@@ -12,7 +12,8 @@
 | PATCH `/api/publisher/ad-codes/{id}` | изменяемые поля + `version` прочитанного Code | новая версия `Code`; старый version → 409 |
 | DELETE `/api/publisher/ad-codes/{id}` | — | `{archived:true}`; история сохраняется |
 | POST `/api/publisher/ad-codes/{id}/duplicate` | — | новый `Code`, новый ID/CODE, без старых Zone/earnings |
-| GET `/api/publisher/ad-codes/{id}/diagnostics` | — | `{ad_code,events:Diagnostic[],runtime_ready}`; до 50 последних запросов |
+| GET `/api/publisher/ad-codes/{id}/diagnostics` | `limit,offset` | `{ad_code,zones:ZoneDiagnostics,runtime_ready}`; зоны активного кода за последний час UTC |
+| GET `/api/publisher/zone-diagnostics` | `limit,offset` | `ZoneDiagnostics`: rows,active_zones,problem_zones,window_from,window_to,refreshed_at,limit,offset; общие счётчики независимо от страницы |
 | GET `/api/publisher/sites` | pagination | `InventoryReport`; lifetime discovery, только собственные источники |
 | GET `/api/publisher/zones` | pagination, optional `site_id`, `ad_code_id` | `InventoryReport`, lifetime Zone discovery |
 | GET `/api/publisher/overview` | — | `{report,balance,from,to}`: 7 дней и текущий ledger balance |
@@ -127,7 +128,7 @@ Lifetime inventory revenue читается из агрегата; послед�
 POST /api/publisher/payouts/{id}/decision использует Bearer JWT с
 sub=BOT_ADMIN_USER_ID, payload {status:'paid'|'canceled',transfer_reference:'...'}.
 Для paid нужен подтверждённый reference; uncovered reserve даёт 409. Owner GET
-payouts и Code diagnostics остаются прежними. Бот не должен вызывать финансовый
+payouts остаются прежними. Code diagnostics теперь возвращает агрегаты зон вместо списка запросов. Бот не должен вызывать финансовый
 endpoint: он всегда отвечает 409, POP auto sync — единственный producer.
 Bot callbacks/buttons не изменены: исходников нет.
 

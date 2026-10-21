@@ -37,7 +37,7 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 	if e != nil {
 		return out, e
 	}
-	requestsTable, e := publisherCompanionTable(table, "publisher_requests_logical")
+	requestsTable, e := publisherCompanionTable(table, "publisher_zone_hourly")
 	if e != nil {
 		return out, e
 	}
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 		return []any{user, q.From, q.To, q.SiteID, q.SiteID, q.ZoneID, q.ZoneID, q.CodeID, q.CodeID}
 	}
 	base := `WITH data AS (
- SELECT event_time,site_id,zone_id,ad_code_id,ifNull(site_domain,'') AS hostname,ifNull(geo,'') AS geo,ifNull(device,'') AS device,ifNull(os,'') AS os,ifNull(browser,'') AS browser,format,toUInt64(1) AS requests,toUInt64(request_error) AS errors,toUInt64(code=200 AND request_error=0) AS fills,toUInt64(code=204 AND request_error=0) AS no_fills,toUInt64(0) AS impressions,toUInt64(0) AS clicks,toFloat64(0) AS revenue FROM ` + requestsTable + ` WHERE ` + where + `
+` + publisherRequestSnapshotSQL(requestsTable, where) + `
  UNION ALL
  SELECT toDateTime64(event_hour,3,'UTC') AS event_time,site_id,zone_id,ad_code_id,'' AS hostname,geo,device_type AS device,os,browser,format,toUInt64(0),toUInt64(0),toUInt64(0),toUInt64(0),impressions,clicks,if(format='POP',ssp_revenue_views,toFloat64(0)) AS revenue FROM ` + table + ` WHERE format IN ('POP','BAN','NAT','IPP','VID') AND ` + strings.ReplaceAll(where, "event_time", "event_hour") + `
  ) `
@@ -112,7 +112,7 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 		rowArgs = append(rowArgs, q.Timezone)
 	}
 	rowArgs = append(rowArgs, q.Limit, q.Offset)
-	query := base + `SELECT ` + group + ` AS bucket,any(site_id),any(zone_id),any(ad_code_id),any(hostname),maxIfOrNull(event_time,requests=1),sum(requests),sum(errors),sum(fills),sum(no_fills),sum(impressions),sum(clicks),toString(round(sum(revenue),8)) FROM filtered GROUP BY bucket ORDER BY bucket LIMIT ? OFFSET ?`
+	query := base + `SELECT ` + group + ` AS bucket,any(site_id),any(zone_id),any(ad_code_id),any(hostname),maxIfOrNull(event_time,requests>0),sum(requests),sum(errors),sum(fills),sum(no_fills),sum(impressions),sum(clicks),toString(round(sum(revenue),8)) FROM filtered GROUP BY bucket ORDER BY bucket LIMIT ? OFFSET ?`
 	rows, e := r.db.QueryContext(ctx, query, rowArgs...)
 	if e != nil {
 		return out, e
@@ -137,32 +137,6 @@ func (r *ClickHouseRepository) PublisherQuery(ctx context.Context, user string, 
 		out.Totals.CTR = 100 * float64(out.Totals.Clicks) / float64(out.Totals.Impressions)
 	}
 	return out, e
-}
-func (s *Service) PublisherDiagnosis(ctx context.Context, user, code string) ([]publisher.Diagnostic, error) {
-	r, ok := s.repo.(*ClickHouseRepository)
-	if !ok {
-		return nil, fmt.Errorf("diagnostics unavailable")
-	}
-	requestsTable, e := publisherCompanionTable(r.table, "publisher_requests_logical")
-	if e != nil {
-		return nil, e
-	}
-	rows, e := r.db.QueryContext(ctx, `SELECT request_id,ifNull(site_id,''),zone_id,ifNull(site_domain,''),event_time,code,request_error,error_reason FROM `+requestsTable+` WHERE pub_user_id=? AND ad_code_id=? ORDER BY event_time DESC LIMIT 50`, user, code)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	out := []publisher.Diagnostic{}
-	for rows.Next() {
-		var d publisher.Diagnostic
-		var flag uint8
-		if e = rows.Scan(&d.RequestID, &d.SiteID, &d.ZoneID, &d.Hostname, &d.EventTime, &d.Code, &flag, &d.Reason); e != nil {
-			return nil, e
-		}
-		d.Error = flag != 0
-		out = append(out, d)
-	}
-	return out, rows.Err()
 }
 func (s *Service) PublisherInventory(ctx context.Context, user, group, site, code string, limit, offset int) ([]publisher.Row, error) {
 	r, ok := s.repo.(*ClickHouseRepository)
