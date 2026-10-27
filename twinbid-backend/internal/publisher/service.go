@@ -23,13 +23,12 @@ import (
 )
 
 type Service struct {
-	DB             *sql.DB
-	Redis          redis.UniversalClient
-	Reports        Reporter
-	Config         publisherconfig.Config
-	Bot            *bot.BotClient
-	AdminID        string
-	lastGuardCheck time.Time
+	DB      *sql.DB
+	Redis   redis.UniversalClient
+	Reports Reporter
+	Config  publisherconfig.Config
+	Bot     *bot.BotClient
+	AdminID string
 }
 type Code struct {
 	c.Code
@@ -272,8 +271,8 @@ func (s *Service) health(w http.ResponseWriter, r *http.Request) {
 		owner = ""
 	}
 	e := s.DB.QueryRowContext(r.Context(), `SELECT (SELECT count(*) FROM ad_codes WHERE (version>synced_version OR synced_epoch<>c.epoch) AND ($1='' OR user_id::text=$1))+CASE WHEN $1='' THEN (SELECT count(*) FROM publisher_domain_blocks WHERE version>synced_version OR synced_epoch<>c.epoch) ELSE 0 END,state,epoch FROM publisher_control c WHERE id=1`, owner).Scan(&backlog, &state, &epoch)
-	ready, err := s.Redis.Get(r.Context(), c.ReadyKey).Result()
-	reply(w, map[string]any{"backlog": backlog, "state": state, "ready": err == nil && ready == epoch, "epoch": func() string {
+	redisEpoch, err := s.Redis.Get(r.Context(), c.EpochKey).Result()
+	reply(w, map[string]any{"backlog": backlog, "state": state, "ready": err == nil && redisEpoch == epoch && backlog == 0, "epoch": func() string {
 		if s.isAdmin(r) {
 			return epoch
 		}

@@ -10,7 +10,7 @@ import (
 	c "twinbid-backend/internal/pubcontract"
 )
 
-// A PostgreSQL advisory lock serializes sync workers, including rehydrate and resume.
+// A PostgreSQL advisory lock serializes sync workers, including rehydration.
 func (s *Service) Sync(ctx context.Context) error {
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {
@@ -40,35 +40,12 @@ func (s *Service) Sync(ctx context.Context) error {
 	if policyErr != nil && policyErr != redis.Nil {
 		return policyErr
 	}
-	guardsLost := false
-	if redisEpoch == epoch && policyEpoch == epoch && (s.lastGuardCheck.IsZero() || time.Since(s.lastGuardCheck) > 30*time.Second) {
-		pipe := s.Redis.Pipeline()
-		checks := make([]*redis.Cmd, 16384)
-		for slot := range checks {
-			checks[slot] = pipe.Eval(ctx, c.CheckGuardLua, []string{c.GuardKeyForSlot(slot)}, epoch)
-		}
-		_, checkErr := pipe.Exec(ctx)
-		if checkErr != nil && checkErr != redis.Nil {
-			return checkErr
-		}
-		for _, cmd := range checks {
-			value, err := cmd.Result()
-			if err != nil && err != redis.Nil {
-				return err
-			}
-			if value != int64(1) {
-				guardsLost = true
-				break
-			}
-		}
-		s.lastGuardCheck = time.Now()
-	}
-	if epoch == "" || redisEpoch != epoch || policyEpoch != epoch || guardsLost {
-		// Losing an epoch means dynamic quotas may have been lost too. Rehydrate config,
-		// but do NOT reopen delivery until an operator confirms restored dynamic state.
+	// Redis AOF restores the epoch and policy with their values across ordinary
+	// restarts. A missing epoch/policy means configuration needs rehydration;
+	// this is not a reason to globally block independent publisher visitors.
+	if epoch == "" || redisEpoch != epoch || policyEpoch != epoch {
 		epoch = uuid.NewString()
-		state = "blocked"
-		if _, e = conn.ExecContext(ctx, `UPDATE publisher_control SET epoch=$1,state='blocked' WHERE id=1`, epoch); e != nil {
+		if _, e = conn.ExecContext(ctx, `UPDATE publisher_control SET epoch=$1,state='ready' WHERE id=1`, epoch); e != nil {
 			return e
 		}
 		if e = s.Redis.Set(ctx, c.EpochKey, epoch, 0).Err(); e != nil {
@@ -83,16 +60,13 @@ func (s *Service) Sync(ctx context.Context) error {
 		if e = s.Redis.Del(ctx, c.ReadyKey).Err(); e != nil {
 			return e
 		}
-		pipe := s.Redis.Pipeline()
-		for slot := 0; slot < 16384; slot++ {
-			pipe.Eval(ctx, c.InitGuardLua, []string{c.GuardKeyForSlot(slot)}, epoch)
-		}
-		if _, e = pipe.Exec(ctx); e != nil {
+	} else if state != "ready" {
+		// Upgrade old installations that were left globally blocked.
+		if _, e = conn.ExecContext(ctx, `UPDATE publisher_control SET state='ready' WHERE id=1`); e != nil {
 			return e
 		}
-		s.lastGuardCheck = time.Now()
 	}
-	if e = s.Redis.Set(ctx, c.StateKey, state, 0).Err(); e != nil {
+	if e = s.Redis.Set(ctx, c.StateKey, "ready", 0).Err(); e != nil {
 		return e
 	}
 	rows, e := conn.QueryContext(ctx, "SELECT "+codeColumns+" FROM ad_codes WHERE traffic_type IN ('adult','mainstream') AND (version>synced_version OR synced_epoch<>$1) ORDER BY updated_at LIMIT 500", epoch)
@@ -171,10 +145,12 @@ func (s *Service) Sync(ctx context.Context) error {
 	if e = conn.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM ad_codes WHERE traffic_type IN ('adult','mainstream') AND (version>synced_version OR synced_epoch<>$1))+(SELECT count(*) FROM publisher_domain_blocks WHERE version>synced_version OR synced_epoch<>$1)`, epoch).Scan(&pending); e != nil {
 		return e
 	}
-	if pending == 0 && state == "ready" {
-		return s.Redis.Set(ctx, c.ReadyKey, epoch, 15*time.Second).Err()
+	if pending == 0 {
+		// Informational marker only. Neither ad delivery nor Redis restart is
+		// dependent on this key or on a short-lived backend heartbeat.
+		return s.Redis.Set(ctx, c.ReadyKey, epoch, 0).Err()
 	}
-	return s.Redis.Del(ctx, c.ReadyKey).Err()
+	return nil
 }
 func (s *Service) Run(ctx context.Context) {
 	t := time.NewTicker(s.Config.SyncInterval)

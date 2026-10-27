@@ -101,16 +101,30 @@ func TestCRUDOwnershipVersionSyncAndRedisReset(t *testing.T) {
 	if code.Active || code.Version != 2 {
 		t.Fatal("stale Redis config", code)
 	}
-	if s.Redis.Exists(context.Background(), c.ReadyKey).Val() != 0 {
-		t.Fatal("automatic unsafe resume")
+	if s.Redis.Get(context.Background(), c.ReadyKey).Val() != first {
+		t.Fatal("publisher did not become ready after initial sync")
+	}
+	var initState string
+	if e = s.DB.QueryRow(`SELECT state FROM publisher_control WHERE id=1`).Scan(&initState); e != nil || initState != "ready" {
+		t.Fatal("publisher not automatically unblocked", initState, e)
 	}
 	s.Redis.FlushDB(context.Background())
 	if e = s.Sync(context.Background()); e != nil {
 		t.Fatal(e)
 	}
 	s.DB.QueryRow(`SELECT epoch FROM publisher_control WHERE id=1`).Scan(&second)
-	if first == second || s.Redis.Exists(context.Background(), c.ReadyKey).Val() != 0 {
-		t.Fatal("reset did not block")
+	if first == second || s.Redis.Get(context.Background(), c.ReadyKey).Val() != second {
+		t.Fatal("publisher did not automatically rehydrate after Redis data loss")
+	}
+	// Loss of old guard keys or Redis server run_id must not block traffic.
+	s.Redis.Del(context.Background(), c.GuardKeyForSlot(0))
+	if e = s.Sync(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	var third string
+	s.DB.QueryRow(`SELECT epoch FROM publisher_control WHERE id=1`).Scan(&third)
+	if third != second {
+		t.Fatal("guard loss rotated epoch without dynamic state loss")
 	}
 	if w := req(h, user, "DELETE", "/api/publisher/ad-codes/"+a.ID, nil); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
