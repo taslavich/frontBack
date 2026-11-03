@@ -67,12 +67,12 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 	return redis.NewUniversalClient(o), nil
 }
 
-// Optional stable SDK URL. An empty override keeps every existing embed unchanged.
+// ScriptURL returns the configured SDK URL or the Publisher origin's runtime.
 func (c Config) ScriptURL() string {
 	if c.PublicScriptURL != "" {
 		return c.PublicScriptURL
 	}
-	return strings.TrimRight(c.PublicURL, "/") + "/static/adManager.js"
+	return strings.TrimRight(c.PublicURL, "/") + "/static/pageHelper.js"
 }
 func (c Config) ValidateScriptURL() error {
 	if c.PublicScriptURL == "" {

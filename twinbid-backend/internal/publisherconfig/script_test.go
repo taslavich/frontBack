@@ -2,9 +2,9 @@ package publisherconfig
 
 import "testing"
 
-func TestPublicScriptURLOverrideAndLegacy(t *testing.T) {
-	c := Config{PublicURL: "https://legacy.example.test/"}
-	if c.ScriptURL() != "https://legacy.example.test/static/adManager.js" || c.ValidateScriptURL() != nil {
+func TestPublicScriptURLOverrideAndDefault(t *testing.T) {
+	c := Config{PublicURL: "https://publisher.example.test/"}
+	if c.ScriptURL() != "https://publisher.example.test/static/pageHelper.js" || c.ValidateScriptURL() != nil {
 		t.Fatal(c.ScriptURL())
 	}
 	c.PublicScriptURL = "https://stable.example.test/sdk.js"
