@@ -98,6 +98,7 @@ func (b *BotClient) SendPaymentModeration(ctx context.Context, req PaymentModera
 }
 
 type PublisherPayoutModerationRequest struct {
+	Status string `json:"status"`
 	ID     string `json:"id"`
 	UserID string `json:"user_id"`
 	Amount string `json:"amount"`

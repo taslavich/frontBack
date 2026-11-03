@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"twinbid-backend/internal/bot"
 )
 
-func TestNotifyPayoutRoutesOnlyPendingToModeration(t *testing.T) {
+func TestNotifyPayoutRoutesEveryStatusToModeration(t *testing.T) {
 	payout := bot.PublisherPayoutModerationRequest{
 		ID: "b29dbfc7-d5fb-4b3d-aa90-d80158ec4283", UserID: "publisher", Amount: "75.12345678", Method: "usdt_erc20", Wallet: "wallet",
 	}
@@ -42,19 +41,15 @@ func TestNotifyPayoutRoutesOnlyPendingToModeration(t *testing.T) {
 			if got.method != http.MethodPost || got.secret != "test-secret" {
 				t.Fatalf("wrong authentication or method: %#v", got)
 			}
-			if status == "pending" {
-				if got.path != "/internal/publisher/payouts/moderation" ||
-					got.body["id"] != payout.ID || got.body["user_id"] != payout.UserID || got.body["amount"] != payout.Amount ||
-					got.body["method"] != payout.Method || got.body["wallet"] != payout.Wallet {
-					t.Fatalf("wrong pending payout: %#v", got)
-				}
-			} else if got.path != "/internal/messages/send" || !strings.Contains(got.body["text"], payout.ID+": "+status) {
-				t.Fatalf("wrong final status notification: %#v", got)
+			if got.path != "/internal/publisher/payouts/moderation" || got.body["status"] != status ||
+				got.body["id"] != payout.ID || got.body["user_id"] != payout.UserID || got.body["amount"] != payout.Amount ||
+				got.body["method"] != payout.Method || got.body["wallet"] != payout.Wallet {
+				t.Fatalf("wrong payout notification: %#v", got)
 			}
 		})
 	}
 	payout.Wallet = "fail"
-	if err := s.notifyPayout(context.Background(), "pending", payout); err == nil {
+	if err := s.notifyPayout(context.Background(), "paid", payout); err == nil {
 		t.Fatal("delivery failure must be returned so Notify does not mark the payout as notified")
 	}
 	if len(calls) != 1 || (<-calls).path != "/internal/publisher/payouts/moderation" {

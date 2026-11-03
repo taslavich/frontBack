@@ -226,10 +226,8 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 	reply(w, map[string]any{"report": v, "balance": balance, "from": q.From, "to": q.To}, e)
 }
 func (s *Service) notifyPayout(ctx context.Context, status string, req bot.PublisherPayoutModerationRequest) error {
-	if status == "pending" {
-		return s.Bot.SendPublisherPayoutModeration(ctx, req)
-	}
-	return s.Bot.SendTextMessage(ctx, fmt.Sprintf("Publisher payout %s: %s, $%s %s; user %s; wallet %s. Operator decision: /api/publisher/payouts/%s/decision", req.ID, status, req.Amount, req.Method, req.UserID, req.Wallet, req.ID))
+	req.Status = status
+	return s.Bot.SendPublisherPayoutModeration(ctx, req)
 }
 
 func (s *Service) Notify(ctx context.Context) error {
