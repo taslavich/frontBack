@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 	"twinbid-backend/internal/auth"
+	"twinbid-backend/internal/bot"
 	"twinbid-backend/internal/httpx"
 )
 
@@ -224,6 +225,13 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 	balance, e := s.Balance(r.Context(), auth.UserID(r))
 	reply(w, map[string]any{"report": v, "balance": balance, "from": q.From, "to": q.To}, e)
 }
+func (s *Service) notifyPayout(ctx context.Context, status string, req bot.PublisherPayoutModerationRequest) error {
+	if status == "pending" {
+		return s.Bot.SendPublisherPayoutModeration(ctx, req)
+	}
+	return s.Bot.SendTextMessage(ctx, fmt.Sprintf("Publisher payout %s: %s, $%s %s; user %s; wallet %s. Operator decision: /api/publisher/payouts/%s/decision", req.ID, status, req.Amount, req.Method, req.UserID, req.Wallet, req.ID))
+}
+
 func (s *Service) Notify(ctx context.Context) error {
 	conn, e := s.DB.Conn(ctx)
 	if e != nil {
@@ -259,7 +267,7 @@ func (s *Service) Notify(ctx context.Context) error {
 		return e
 	}
 	for _, n := range pending {
-		if e = s.Bot.SendTextMessage(ctx, fmt.Sprintf("Publisher payout %s: %s, $%s %s; user %s; wallet %s. Operator decision: /api/publisher/payouts/%s/decision", n.id, n.status, n.amount, n.method, n.user, n.wallet, n.id)); e != nil {
+		if e = s.notifyPayout(ctx, n.status, bot.PublisherPayoutModerationRequest{ID: n.id, UserID: n.user, Amount: n.amount, Method: n.method, Wallet: n.wallet}); e != nil {
 			return e
 		}
 		if _, e = conn.ExecContext(ctx, `UPDATE publisher_payouts SET notified_at=now() WHERE id=$1 AND status=$2`, n.id, n.status); e != nil {

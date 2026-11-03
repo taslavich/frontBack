@@ -97,6 +97,18 @@ func (b *BotClient) SendPaymentModeration(ctx context.Context, req PaymentModera
 	return b.postJSON(ctx, "/internal/payments/moderation", req)
 }
 
+type PublisherPayoutModerationRequest struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+	Amount string `json:"amount"`
+	Method string `json:"method"`
+	Wallet string `json:"wallet"`
+}
+
+func (b *BotClient) SendPublisherPayoutModeration(ctx context.Context, req PublisherPayoutModerationRequest) error {
+	return b.postJSON(ctx, "/internal/publisher/payouts/moderation", req)
+}
+
 func campaignHasFiles(req CampaignModerationRequest) bool {
 	for _, cr := range req.Creatives {
 		if cr.ImageFile != nil {
