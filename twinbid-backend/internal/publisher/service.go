@@ -68,7 +68,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Patch("/api/publisher/settings", s.settings)
 	r.Get("/api/publisher/sync-health", s.health)
 	r.Post("/api/publisher/admin/redis-resume", s.resume)
-	r.Put("/api/publisher/admin/domain-block", s.domainBlock)
+	r.Put("/api/publisher/admin/domain-block", s.siteBlock)
 }
 func reply(w http.ResponseWriter, v any, e error) {
 	if e != nil {
@@ -241,26 +241,25 @@ func (s *Service) archiveCode(w http.ResponseWriter, r *http.Request) {
 func (s *Service) isAdmin(r *http.Request) bool {
 	return auth.UserID(r) == s.AdminID && s.AdminID != ""
 }
-func (s *Service) domainBlock(w http.ResponseWriter, r *http.Request) {
+func (s *Service) siteBlock(w http.ResponseWriter, r *http.Request) {
 	if !s.isAdmin(r) {
 		reply(w, nil, httpx.Forbidden("admin required"))
 		return
 	}
 	var b struct {
-		Hostname string `json:"hostname"`
-		Blocked  bool   `json:"blocked"`
-		Reason   string `json:"reason"`
+		SiteID  string `json:"site_id"`
+		Blocked bool   `json:"blocked"`
+		Reason  string `json:"reason"`
 	}
 	if e := decode(w, r, &b); e != nil {
 		reply(w, nil, e)
 		return
 	}
-	host, _, e := c.Page("https://" + b.Hostname + "/")
-	if e != nil {
-		reply(w, nil, httpx.BadRequest("invalid hostname"))
+	if !c.ValidShortID(b.SiteID) {
+		reply(w, nil, httpx.BadRequest("site_id must contain exactly 12 Base62 characters"))
 		return
 	}
-	_, e = s.DB.ExecContext(r.Context(), `INSERT INTO publisher_domain_blocks(hostname,blocked,reason) VALUES($1,$2,$3) ON CONFLICT(hostname) DO UPDATE SET blocked=EXCLUDED.blocked,reason=EXCLUDED.reason,version=publisher_domain_blocks.version+1,updated_at=now()`, host, b.Blocked, b.Reason)
+	_, e := s.DB.ExecContext(r.Context(), `INSERT INTO publisher_site_blocks(site_id,blocked,reason) VALUES($1,$2,$3) ON CONFLICT(site_id) DO UPDATE SET blocked=EXCLUDED.blocked,reason=EXCLUDED.reason,version=publisher_site_blocks.version+1,updated_at=now()`, b.SiteID, b.Blocked, b.Reason)
 	reply(w, b, e)
 }
 func (s *Service) health(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +269,7 @@ func (s *Service) health(w http.ResponseWriter, r *http.Request) {
 	if s.isAdmin(r) {
 		owner = ""
 	}
-	e := s.DB.QueryRowContext(r.Context(), `SELECT (SELECT count(*) FROM ad_codes WHERE (version>synced_version OR synced_epoch<>c.epoch) AND ($1='' OR user_id::text=$1))+CASE WHEN $1='' THEN (SELECT count(*) FROM publisher_domain_blocks WHERE version>synced_version OR synced_epoch<>c.epoch) ELSE 0 END,state,epoch FROM publisher_control c WHERE id=1`, owner).Scan(&backlog, &state, &epoch)
+	e := s.DB.QueryRowContext(r.Context(), `SELECT (SELECT count(*) FROM ad_codes WHERE (version>synced_version OR synced_epoch<>c.epoch) AND ($1='' OR user_id::text=$1))+CASE WHEN $1='' THEN (SELECT count(*) FROM publisher_site_blocks WHERE version>synced_version OR synced_epoch<>c.epoch) ELSE 0 END,state,epoch FROM publisher_control c WHERE id=1`, owner).Scan(&backlog, &state, &epoch)
 	redisEpoch, err := s.Redis.Get(r.Context(), c.EpochKey).Result()
 	reply(w, map[string]any{"backlog": backlog, "state": state, "ready": err == nil && redisEpoch == epoch && backlog == 0, "epoch": func() string {
 		if s.isAdmin(r) {

@@ -31,10 +31,10 @@ func TestNormalizeAndIdentity(t *testing.T) {
 	if Hash("zone", "1", "23") == Hash("zone", "12", "3") {
 		t.Fatal("ambiguous encoding")
 	}
-	if got := SiteID("example.com"); got != "a86288ef019d27ad81f8b08700e49312b009377421841267df68903d2d3329d0" {
+	if got := SiteID("example.com"); got != "U368FL4X4rW8" {
 		t.Fatal(got)
 	}
-	if got := ZoneID(SiteID("example.com"), "code-a"); got != "cff5d4fc9106578ea1aa4f64163cf8341544f70fc0313c3af618a174933c0ed6" {
+	if got := ZoneID(SiteID("example.com"), "code-a"); got != "B09ffMQbqgLg" {
 		t.Fatal(got)
 	}
 }

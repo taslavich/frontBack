@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"golang.org/x/net/idna"
 	"math"
+	"math/big"
 	"net"
 	"net/url"
 	"strings"
@@ -22,6 +23,12 @@ const Prefix = "twinbid:publisher:v1:"
 const ReadyKey = Prefix + "{control}:ready"
 const EpochKey = Prefix + "{control}:epoch"
 const StateKey = Prefix + "{control}:state"
+
+// Versioned policy key prevents mixed deployments from treating domain keys as Site IDs.
+const SiteBlocksKey = Prefix + "{control}:site-blocks:v2"
+const ShortIDLength = 12
+
+var shortIDSpace = new(big.Int).Exp(big.NewInt(62), big.NewInt(ShortIDLength), nil)
 
 type Code struct {
 	ID               string  `json:"ad_code_id"`
@@ -61,9 +68,11 @@ func (c Code) Validate() error {
 	}
 	return nil
 }
-func CodeKey(code string) string  { return Prefix + "code:" + code }
-func BlockKey(host string) string { return Prefix + "block:" + SiteID(host) }
-func Hash(kind string, values ...string) string {
+func CodeKey(code string) string { return Prefix + "code:" + code }
+
+// The administrator supplies an existing Site ID; it is never hashed again.
+func BlockKey(siteID string) string { return Prefix + "block:" + siteID }
+func hashDigest(kind string, values ...string) []byte {
 	h := sha256.New()
 	h.Write([]byte("twinbid:" + kind + ":v1\x00"))
 	for _, v := range values {
@@ -72,10 +81,39 @@ func Hash(kind string, values ...string) string {
 		h.Write(n[:])
 		h.Write([]byte(v))
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	return h.Sum(nil)
 }
-func SiteID(host string) string       { return Hash("site", host) }
-func ZoneID(site, code string) string { return Hash("zone", site, code) }
+
+// Hash retains the original full digest contract for non-ID callers.
+func Hash(kind string, values ...string) string {
+	return hex.EncodeToString(hashDigest(kind, values...))
+}
+
+// shortID: SHA-256 over the existing versioned, length-prefixed inputs, then
+// unsigned digest modulo 62^12, encoded with alphabet 0-9,a-z,A-Z and left-padded
+// with zeroes. This is deterministic, case-sensitive, and always 12 characters.
+func shortID(kind string, values ...string) string {
+	n := new(big.Int).SetBytes(hashDigest(kind, values...))
+	n.Mod(n, shortIDSpace)
+	encoded := n.Text(62)
+	return strings.Repeat("0", ShortIDLength-len(encoded)) + encoded
+}
+
+func SiteID(host string) string       { return shortID("site", host) }
+func ZoneID(site, code string) string { return shortID("zone", site, code) }
+
+func ValidShortID(id string) bool {
+	if len(id) != ShortIDLength {
+		return false
+	}
+	for i := range id {
+		c := id[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
+}
 func Page(raw string) (string, string, error) {
 	if raw == "" || strings.IndexFunc(raw, unicode.IsSpace) >= 0 {
 		return "", "", errors.New("page_url required, whitespace forbidden")

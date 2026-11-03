@@ -33,7 +33,7 @@ func EnsurePublisherSchema(ctx context.Context, db *sql.DB) error {
  DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM ad_codes WHERE traffic_type NOT IN ('adult','mainstream')) THEN ALTER TABLE ad_codes VALIDATE CONSTRAINT ad_codes_traffic_type_check; END IF; END $$;
  CREATE INDEX IF NOT EXISTS ad_codes_owner ON ad_codes(user_id,created_at);
  CREATE INDEX IF NOT EXISTS ad_codes_delta ON ad_codes(updated_at) WHERE version>synced_version;
- CREATE TABLE IF NOT EXISTS publisher_domain_blocks(hostname TEXT PRIMARY KEY, blocked BOOLEAN NOT NULL, reason TEXT NOT NULL DEFAULT '', version BIGINT NOT NULL DEFAULT 1, synced_version BIGINT NOT NULL DEFAULT 0, synced_epoch TEXT NOT NULL DEFAULT '', updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ CREATE TABLE IF NOT EXISTS publisher_site_blocks(site_id TEXT COLLATE "C" PRIMARY KEY CHECK(site_id ~ '^[0-9A-Za-z]{12}$'), blocked BOOLEAN NOT NULL, reason TEXT NOT NULL DEFAULT '', version BIGINT NOT NULL DEFAULT 1, synced_version BIGINT NOT NULL DEFAULT 0, synced_epoch TEXT NOT NULL DEFAULT '', updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
  CREATE TABLE IF NOT EXISTS publisher_control(id INT PRIMARY KEY CHECK(id=1), epoch TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'blocked');
  INSERT INTO publisher_control(id) VALUES(1) ON CONFLICT DO NOTHING;
  CREATE TABLE IF NOT EXISTS publisher_accounts(user_id UUID PRIMARY KEY REFERENCES users(id), balance NUMERIC(24,8) NOT NULL DEFAULT 0, reserved NUMERIC(24,8) NOT NULL DEFAULT 0 CHECK(reserved>=0), preferences JSONB NOT NULL DEFAULT '{"codeAlerts":true,"payoutMethod":"usdt_trc20","wallet":""}');

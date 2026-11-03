@@ -36,7 +36,7 @@ func (s *Service) Sync(ctx context.Context) error {
 	if e != nil && e != redis.Nil {
 		return e
 	}
-	policyEpoch, policyErr := s.Redis.HGet(ctx, c.Prefix+"{control}:blocks", "epoch").Result()
+	policyEpoch, policyErr := s.Redis.HGet(ctx, c.SiteBlocksKey, "epoch").Result()
 	if policyErr != nil && policyErr != redis.Nil {
 		return policyErr
 	}
@@ -51,10 +51,10 @@ func (s *Service) Sync(ctx context.Context) error {
 		if e = s.Redis.Set(ctx, c.EpochKey, epoch, 0).Err(); e != nil {
 			return e
 		}
-		if e = s.Redis.Del(ctx, c.Prefix+"{control}:blocks").Err(); e != nil {
+		if e = s.Redis.Del(ctx, c.SiteBlocksKey).Err(); e != nil {
 			return e
 		}
-		if e = s.Redis.HSet(ctx, c.Prefix+"{control}:blocks", "epoch", epoch).Err(); e != nil {
+		if e = s.Redis.HSet(ctx, c.SiteBlocksKey, "epoch", epoch).Err(); e != nil {
 			return e
 		}
 		if e = s.Redis.Del(ctx, c.ReadyKey).Err(); e != nil {
@@ -100,21 +100,21 @@ func (s *Service) Sync(ctx context.Context) error {
 			return e
 		}
 	}
-	rows, e = conn.QueryContext(ctx, `SELECT hostname,blocked,reason,version FROM publisher_domain_blocks WHERE version>synced_version OR synced_epoch<>$1 ORDER BY updated_at LIMIT 500`, epoch)
+	rows, e = conn.QueryContext(ctx, `SELECT site_id,blocked,reason,version FROM publisher_site_blocks WHERE version>synced_version OR synced_epoch<>$1 ORDER BY updated_at LIMIT 500`, epoch)
 	if e != nil {
 		return e
 	}
 	type block struct {
-		Hostname string `json:"hostname"`
-		Blocked  bool   `json:"blocked"`
-		Reason   string `json:"reason"`
-		Version  int64  `json:"version"`
-		Epoch    string `json:"epoch"`
+		SiteID  string `json:"site_id"`
+		Blocked bool   `json:"blocked"`
+		Reason  string `json:"reason"`
+		Version int64  `json:"version"`
+		Epoch   string `json:"epoch"`
 	}
 	blocks := []block{}
 	for rows.Next() {
 		v := block{Epoch: epoch}
-		if e = rows.Scan(&v.Hostname, &v.Blocked, &v.Reason, &v.Version); e != nil {
+		if e = rows.Scan(&v.SiteID, &v.Blocked, &v.Reason, &v.Version); e != nil {
 			rows.Close()
 			return e
 		}
@@ -127,22 +127,22 @@ func (s *Service) Sync(ctx context.Context) error {
 	}
 	for _, v := range blocks {
 		b, _ := json.Marshal(v)
-		if _, e = s.Redis.Eval(ctx, c.PutVersionLua, []string{c.BlockKey(v.Hostname)}, v.Version, string(b), epoch).Result(); e != nil {
+		if _, e = s.Redis.Eval(ctx, c.PutVersionLua, []string{c.BlockKey(v.SiteID)}, v.Version, string(b), epoch).Result(); e != nil {
 			return e
 		}
 		blockValue := "0"
 		if v.Blocked {
 			blockValue = "1"
 		}
-		if e = s.Redis.HSet(ctx, c.Prefix+"{control}:blocks", v.Hostname, blockValue).Err(); e != nil {
+		if e = s.Redis.HSet(ctx, c.SiteBlocksKey, v.SiteID, blockValue).Err(); e != nil {
 			return e
 		}
-		if _, e = conn.ExecContext(ctx, `UPDATE publisher_domain_blocks SET synced_version=$2,synced_epoch=$3 WHERE hostname=$1 AND version=$2`, v.Hostname, v.Version, epoch); e != nil {
+		if _, e = conn.ExecContext(ctx, `UPDATE publisher_site_blocks SET synced_version=$2,synced_epoch=$3 WHERE site_id=$1 AND version=$2`, v.SiteID, v.Version, epoch); e != nil {
 			return e
 		}
 	}
 	var pending int
-	if e = conn.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM ad_codes WHERE traffic_type IN ('adult','mainstream') AND (version>synced_version OR synced_epoch<>$1))+(SELECT count(*) FROM publisher_domain_blocks WHERE version>synced_version OR synced_epoch<>$1)`, epoch).Scan(&pending); e != nil {
+	if e = conn.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM ad_codes WHERE traffic_type IN ('adult','mainstream') AND (version>synced_version OR synced_epoch<>$1))+(SELECT count(*) FROM publisher_site_blocks WHERE version>synced_version OR synced_epoch<>$1)`, epoch).Scan(&pending); e != nil {
 		return e
 	}
 	if pending == 0 {
