@@ -12,6 +12,8 @@ import (
 )
 
 type Config struct {
+	DirectLinkPublicURL string        `env:"PUBLISHER_DIRECT_LINK_PUBLIC_URL"`
+	DirectLinkEnabled   bool          `env:"PUBLISHER_DIRECT_LINK_ENABLED" env-default:"false"`
 	RedisCluster        bool          `env:"PUBLISHER_REDIS_CLUSTER" env-default:"false"`
 	RedisAddrs          string        `env:"PUBLISHER_REDIS_ADDRS"`
 	RedisDB             int           `env:"PUBLISHER_REDIS_DB" env-default:"-1"`
@@ -31,6 +33,11 @@ func (c Config) Redis() (redis.UniversalClient, error) {
 	u, e := url.Parse(c.PublicURL)
 	if e != nil || u.Host == "" || u.User != nil || u.Scheme != "https" {
 		return nil, errors.New("PUBLISHER_PUBLIC_URL must be a public HTTPS origin")
+	}
+	if c.DirectLinkEnabled || c.DirectLinkPublicURL != "" {
+		if err := c.validateDirectLinkOrigin(); err != nil {
+			return nil, err
+		}
 	}
 	if c.SyncInterval <= 0 || c.SyncInterval > 30*time.Second {
 		return nil, errors.New("PUBLISHER_SYNC_INTERVAL must be >0 and <=30s")

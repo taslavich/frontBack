@@ -48,8 +48,11 @@ type Code struct {
 }
 
 func (c Code) Validate() error {
-	if strings.TrimSpace(c.Name) == "" || utf8.RuneCountInString(c.Name) > 100 || c.Format != "popunder" {
-		return errors.New("name (1..100) and format=popunder required")
+	if strings.TrimSpace(c.Name) == "" || utf8.RuneCountInString(c.Name) > 100 {
+		return errors.New("name (1..100) required")
+	}
+	if c.Format != "popunder" && c.Format != "direct_link" {
+		return errors.New("format must be popunder or direct_link")
 	}
 	if c.TrafficType != "adult" && c.TrafficType != "mainstream" {
 		return errors.New("traffic_type is required and must be adult or mainstream")

@@ -32,6 +32,7 @@ type Service struct {
 }
 type Code struct {
 	c.Code
+	DirectLinkURL string    `json:"direct_link_url,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	SyncedVersion int64     `json:"synced_version"`
 }
@@ -109,6 +110,13 @@ func (s *Service) ownerCode(r *http.Request) (Code, error) {
 	}
 	return v, e
 }
+func (s *Service) codeResponse(a Code) Code {
+	if a.Format == "direct_link" {
+		a.DirectLinkURL = s.Config.DirectLinkOrigin() + "/go/" + a.ShortCode
+	}
+	return a
+}
+
 func (s *Service) listCodes(w http.ResponseWriter, r *http.Request) {
 	limit, offset, e := pagination(r)
 	if e != nil {
@@ -128,11 +136,18 @@ func (s *Service) listCodes(w http.ResponseWriter, r *http.Request) {
 			reply(w, nil, e)
 			return
 		}
-		items = append(items, a)
+		items = append(items, s.codeResponse(a))
 	}
-	reply(w, map[string]any{"items": items, "limit": limit, "offset": offset, "public_script_url": s.Config.ScriptURL()}, rows.Err())
+	formats := []string{"popunder"}
+	if s.Config.DirectLinkEnabled {
+		formats = append(formats, "direct_link")
+	}
+	reply(w, map[string]any{"items": items, "limit": limit, "offset": offset, "public_script_url": s.Config.ScriptURL(), "supported_formats": formats}, rows.Err())
 }
 func (s *Service) insertCode(ctx context.Context, user string, a c.Code) (Code, error) {
+	if a.Format == "direct_link" && !s.Config.DirectLinkEnabled {
+		return Code{}, httpx.Conflict("Direct Link is not enabled")
+	}
 	if e := a.Validate(); e != nil {
 		return Code{}, httpx.BadRequest(e.Error())
 	}
@@ -146,6 +161,10 @@ func (s *Service) createCode(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, e)
 		return
 	}
+	if a.Format == "direct_link" && (a.TriggerClick != 1 || a.FrequencyMinutes != 10 || a.MaxPerSession != nil) {
+		reply(w, nil, httpx.BadRequest("Direct Link uses server frequency settings"))
+		return
+	}
 	a.Name = strings.TrimSpace(a.Name)
 	if a.ID != "" || a.UserID != "" || a.ShortCode != "" || a.Version != 0 || a.Epoch != "" || a.Archived {
 		reply(w, nil, httpx.BadRequest("identity and version are server-owned"))
@@ -156,11 +175,11 @@ func (s *Service) createCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, e := s.insertCode(r.Context(), auth.UserID(r), a)
-	reply(w, v, e)
+	reply(w, s.codeResponse(v), e)
 }
 func (s *Service) getCode(w http.ResponseWriter, r *http.Request) {
 	v, e := s.ownerCode(r)
-	reply(w, v, e)
+	reply(w, s.codeResponse(v), e)
 }
 func (s *Service) duplicateCode(w http.ResponseWriter, r *http.Request) {
 	a, e := s.ownerCode(r)
@@ -173,7 +192,7 @@ func (s *Service) duplicateCode(w http.ResponseWriter, r *http.Request) {
 		a.Name = string([]rune(a.Name)[:95]) + " copy"
 	}
 	v, e := s.insertCode(r.Context(), auth.UserID(r), a.Code)
-	reply(w, v, e)
+	reply(w, s.codeResponse(v), e)
 }
 func (s *Service) patchCode(w http.ResponseWriter, r *http.Request) {
 	a, e := s.ownerCode(r)
@@ -199,6 +218,11 @@ func (s *Service) patchCode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	allowed := map[string]bool{"name": true, "traffic_type": true, "device": true, "is_active": true, "trigger_click": true, "frequency_minutes": true, "max_per_session": true, "version": true}
+	if a.Format == "direct_link" {
+		delete(allowed, "trigger_click")
+		delete(allowed, "frequency_minutes")
+		delete(allowed, "max_per_session")
+	}
 	for k := range fields {
 		if !allowed[k] {
 			reply(w, nil, httpx.BadRequest("unknown or immutable field: "+k))
@@ -227,7 +251,7 @@ func (s *Service) patchCode(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(e, sql.ErrNoRows) {
 		e = httpx.Conflict("version changed; reload code")
 	}
-	reply(w, v, e)
+	reply(w, s.codeResponse(v), e)
 }
 func (s *Service) archiveCode(w http.ResponseWriter, r *http.Request) {
 	a, e := s.ownerCode(r)

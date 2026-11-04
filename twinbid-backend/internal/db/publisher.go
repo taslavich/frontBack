@@ -18,7 +18,7 @@ func EnsurePublisherSchema(ctx context.Context, db *sql.DB) error {
 	_, err = tx.ExecContext(ctx, `
  CREATE TABLE IF NOT EXISTS ad_codes (
  ad_code_id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id), short_code TEXT UNIQUE NOT NULL,
- name TEXT NOT NULL, format TEXT NOT NULL DEFAULT 'popunder' CHECK(format='popunder'),
+ name TEXT NOT NULL, format TEXT NOT NULL DEFAULT 'popunder' CONSTRAINT ad_codes_supported_format_check CHECK(format IN ('popunder','direct_link')),
  traffic_type TEXT NOT NULL CONSTRAINT ad_codes_traffic_type_check CHECK(traffic_type IN ('adult','mainstream')),
  device TEXT NOT NULL DEFAULT 'all' CHECK(device IN ('all','desktop','mobile')),
  is_active BOOLEAN NOT NULL DEFAULT true, archived_at TIMESTAMPTZ,
@@ -27,6 +27,12 @@ func EnsurePublisherSchema(ctx context.Context, db *sql.DB) error {
  max_per_session INT CHECK(max_per_session>=1 AND max_per_session<=100000),
  version BIGINT NOT NULL DEFAULT 1, synced_version BIGINT NOT NULL DEFAULT 0, synced_epoch TEXT NOT NULL DEFAULT '',
  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ DO $$ BEGIN
+   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='ad_codes'::regclass AND conname='ad_codes_supported_format_check') THEN
+     ALTER TABLE ad_codes ADD CONSTRAINT ad_codes_supported_format_check CHECK(format IN ('popunder','direct_link'));
+   END IF;
+ END $$;
+ ALTER TABLE ad_codes DROP CONSTRAINT IF EXISTS ad_codes_format_check;
  ALTER TABLE ad_codes ALTER COLUMN traffic_type DROP DEFAULT;
  ALTER TABLE ad_codes DROP CONSTRAINT IF EXISTS ad_codes_traffic_type_check;
  ALTER TABLE ad_codes ADD CONSTRAINT ad_codes_traffic_type_check CHECK(traffic_type IN ('adult','mainstream')) NOT VALID;
