@@ -226,3 +226,13 @@ func (b *BotClient) do(req *http.Request) error {
 func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, `"`, `\"`)
 }
+
+type PublisherSiteReviewRequest struct {
+	SiteID         string    `json:"site_id"`
+	Hostname       string    `json:"hostname"`
+	FirstRequestAt time.Time `json:"first_request_at"`
+}
+
+func (b *BotClient) SendPublisherSiteReview(ctx context.Context, req PublisherSiteReviewRequest) error {
+	return b.postJSON(ctx, "/internal/publisher/sites/moderation", req)
+}

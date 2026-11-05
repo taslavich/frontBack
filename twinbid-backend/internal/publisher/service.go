@@ -23,12 +23,13 @@ import (
 )
 
 type Service struct {
-	DB      *sql.DB
-	Redis   redis.UniversalClient
-	Reports Reporter
-	Config  publisherconfig.Config
-	Bot     *bot.BotClient
-	AdminID string
+	DB        *sql.DB
+	Redis     redis.UniversalClient
+	Reports   Reporter
+	Config    publisherconfig.Config
+	Bot       *bot.BotClient
+	AdminID   string
+	botSecret string
 }
 type Code struct {
 	c.Code
@@ -45,7 +46,7 @@ func scanCode(row interface{ Scan(...any) error }) (Code, error) {
 	return a, e
 }
 func New(db *sql.DB, r redis.UniversalClient, reports Reporter, cfg publisherconfig.Config, b config.BotConfig) *Service {
-	return &Service{DB: db, Redis: r, Reports: reports, Config: cfg, Bot: bot.NewBotClient(b.BaseURL, b.InternalSecret), AdminID: b.AdminUserID}
+	return &Service{DB: db, Redis: r, Reports: reports, Config: cfg, Bot: bot.NewBotClient(b.BaseURL, b.InternalSecret), AdminID: b.AdminUserID, botSecret: b.InternalSecret}
 }
 func (s *Service) Routes(r chi.Router) {
 	r.Get("/api/publisher/ad-codes", s.listCodes)
@@ -70,6 +71,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/api/publisher/sync-health", s.health)
 	r.Post("/api/publisher/admin/redis-resume", s.resume)
 	r.Put("/api/publisher/admin/domain-block", s.siteBlock)
+	r.Post("/api/publisher/admin/site-review/{siteID}/decision", s.siteReviewDecision)
 }
 func reply(w http.ResponseWriter, v any, e error) {
 	if e != nil {
@@ -283,7 +285,7 @@ func (s *Service) siteBlock(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, httpx.BadRequest("site_id must contain exactly 12 Base62 characters"))
 		return
 	}
-	_, e := s.DB.ExecContext(r.Context(), `INSERT INTO publisher_site_blocks(site_id,blocked,reason) VALUES($1,$2,$3) ON CONFLICT(site_id) DO UPDATE SET blocked=EXCLUDED.blocked,reason=EXCLUDED.reason,version=publisher_site_blocks.version+1,updated_at=now()`, b.SiteID, b.Blocked, b.Reason)
+	e := writePublisherSiteBlock(r.Context(), s.DB, b.SiteID, b.Blocked, b.Reason)
 	reply(w, b, e)
 }
 func (s *Service) health(w http.ResponseWriter, r *http.Request) {

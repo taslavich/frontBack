@@ -224,6 +224,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go runNightCampaignAutoApproval(ctx, campaignSvc)
 	go pubSvc.Run(ctx)
 	go pubSvc.RunRevenueSync(ctx)
+	go pubSvc.RunSiteReviewNotices(ctx)
 	r := buildRouter(authSvc, authHandler, profileHandler, partnersHandler, campaignHandler, creativeHandler, promoHandler, topupHandler, notificationHandler, statsHandler, advertiserStatsHandler, pubSvc)
 	return &App{Cfg: cfg, Postgres: pg, Stats: statsSvc, RecoveryRedis: recoveryRedis, PublisherRedis: pubRedis, Router: r}, nil
 }
