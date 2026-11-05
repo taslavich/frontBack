@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"net/http"
 	"strconv"
 	"time"
@@ -291,6 +291,7 @@ func (s *Service) Notify(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	var noticeErr error
 	for _, user := range ids {
 		var preferences []byte
 		e = conn.QueryRowContext(ctx, `SELECT preferences FROM publisher_accounts WHERE user_id=$1`, user).Scan(&preferences)
@@ -301,9 +302,6 @@ func (s *Service) Notify(ctx context.Context) error {
 			CodeAlerts *bool `json:"codeAlerts"`
 		}
 		json.Unmarshal(preferences, &prefs)
-		if prefs.CodeAlerts != nil && !*prefs.CodeAlerts {
-			continue
-		}
 		provider, ok := s.Reports.(ZoneReporter)
 		if !ok {
 			return fmt.Errorf("zone attention unavailable")
@@ -326,11 +324,16 @@ func (s *Service) Notify(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		known, missing, e := attentionInventory(ctx, provider, user, codes)
+		inventory, e := attentionInventory(ctx, provider, user, codes)
 		if e != nil {
 			return e
 		}
-		for code := range known {
+		if prefs.CodeAlerts == nil || *prefs.CodeAlerts {
+			if err := insertPublisherSilenceNotices(ctx, conn, user, inventory.silenceNotices); err != nil {
+				noticeErr = errors.Join(noticeErr, fmt.Errorf("publisher silence notifications: %w", err))
+			}
+		}
+		for code, problems := range inventory.problemsByCode {
 			var active bool
 			if e = conn.QueryRowContext(ctx, `SELECT is_active AND archived_at IS NULL FROM ad_codes WHERE ad_code_id=$1 AND user_id=$2`, code, user).Scan(&active); e != nil {
 				return e
@@ -344,14 +347,16 @@ func (s *Service) Notify(ctx context.Context) error {
 			if e != nil && !errorsNoRows(e) {
 				return e
 			}
-			if len(missing[code]) > 0 {
+			if len(problems) > 0 {
 				if !notified {
-					body, _ := json.Marshal(missing[code])
-					if e = s.userNotice(ctx, conn, user, "publisher:attention:"+code+":"+time.Now().UTC().Format("2006-01-02T15:04"), fmt.Sprintf("Publisher attention: code=%s", code)); e != nil {
-						return e
+					hosts := make([]string, 0, len(problems))
+					for _, zone := range problems {
+						hosts = append(hosts, zone.Hostname)
 					}
-					if e = s.Bot.SendTextMessage(ctx, fmt.Sprintf("Publisher attention: user=%s code=%s sites=%s", user, code, body)); e != nil {
-						return e
+					body, _ := json.Marshal(hosts)
+					if err := s.Bot.SendTextMessage(ctx, inventory.telegramAttentionText(user, code, problems)); err != nil {
+						noticeErr = errors.Join(noticeErr, fmt.Errorf("publisher attention Telegram: %w", err))
+						continue
 					}
 					_, e = conn.ExecContext(ctx, `INSERT INTO publisher_attention(ad_code_id,missing,notified) VALUES($1,$2,true) ON CONFLICT(ad_code_id) DO UPDATE SET missing=EXCLUDED.missing,notified=true,updated_at=now()`, code, string(body))
 					if e != nil {
@@ -359,11 +364,13 @@ func (s *Service) Notify(ctx context.Context) error {
 					}
 				}
 			} else if notified {
-				if e = s.userNotice(ctx, conn, user, "publisher:recovery:"+code+":"+time.Now().UTC().Format("2006-01-02T15:04"), fmt.Sprintf("Publisher recovery: code=%s", code)); e != nil {
-					return e
+				var previousHosts []string
+				if err := json.Unmarshal(old, &previousHosts); err != nil {
+					previousHosts = nil
 				}
-				if e = s.Bot.SendTextMessage(ctx, fmt.Sprintf("Publisher recovery: user=%s code=%s all missing sites recovered", user, code)); e != nil {
-					return e
+				if err := s.Bot.SendTextMessage(ctx, inventory.telegramRecoveryText(user, code, previousHosts)); err != nil {
+					noticeErr = errors.Join(noticeErr, fmt.Errorf("publisher recovery Telegram: %w", err))
+					continue
 				}
 				if _, e = conn.ExecContext(ctx, `DELETE FROM publisher_attention WHERE ad_code_id=$1`, code); e != nil {
 					return e
@@ -371,15 +378,9 @@ func (s *Service) Notify(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return noticeErr
 }
 func errorsNoRows(e error) bool { return e == sql.ErrNoRows }
-
-func (s *Service) userNotice(ctx context.Context, conn *sql.Conn, user, key, text string) error {
-	// Existing notification API exposes these owner-bound notices with type other.
-	_, e := conn.ExecContext(ctx, `INSERT INTO notifications(id,user_id,status,text,type) VALUES($1,$2,'active',$3,'other') ON CONFLICT(id) DO NOTHING`, uuid.NewSHA1(uuid.NameSpaceURL, []byte(key)).String(), user, text)
-	return e
-}
 
 func (s *Service) diagnostics(w http.ResponseWriter, r *http.Request) {
 	code, e := s.ownerCode(r)
@@ -403,31 +404,4 @@ func (s *Service) diagnostics(w http.ResponseWriter, r *http.Request) {
 		ready = err == nil && v != ""
 	}
 	reply(w, map[string]any{"ad_code": code, "zones": report, "runtime_ready": ready}, nil)
-}
-
-// Consume bounded pages before acting on attention/recovery. An incomplete
-// page sequence is an error, never evidence that all sites recovered.
-func attentionInventory(ctx context.Context, provider ZoneReporter, user string, codes []string) (map[string]bool, map[string][]string, error) {
-	known := map[string]bool{}
-	missing := map[string][]string{}
-	asof := time.Now().UTC()
-	for offset := 0; ; offset += 500 {
-		if e := ctx.Err(); e != nil {
-			return nil, nil, e
-		}
-		report, e := provider.PublisherZoneDiagnostics(ctx, user, codes, 500, offset, asof)
-		if e != nil {
-			return nil, nil, e
-		}
-		for _, z := range report.Rows {
-			known[z.CodeID] = true
-			if z.Status == "problem" {
-				missing[z.CodeID] = append(missing[z.CodeID], z.Hostname)
-			}
-		}
-		if len(report.Rows) < 500 {
-			break
-		}
-	}
-	return known, missing, nil
 }
